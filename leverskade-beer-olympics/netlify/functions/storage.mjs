@@ -1,5 +1,3 @@
-import { getStore } from "@netlify/blobs";
-
 const KEY = "state-v1";
 
 const DEFAULT_GAMES = [
@@ -36,18 +34,19 @@ function defaultState() {
     games: DEFAULT_GAMES,
     scores: {},
     teams: [],
-    bracket: null,
+    tournament: null, // { rounds: [ { matches: [...] } ] }
     rev: 0,
   };
 }
 
-/* ---------- bracket helpers ---------- */
-
-function nextPowerOfTwo(n) {
-  let p = 1;
-  while (p < n) p *= 2;
-  return p;
-}
+/* ---------------- tournament (Swiss style) ----------------
+   Every team plays every round — no byes unless the team count
+   is odd, in which case exactly one team sits out per round and
+   never sits out twice before everyone else has.
+   After round 1, teams are ranked by wins and paired with the
+   closest-ranked opponent they haven't already played, so the
+   strong teams meet the strong and the weak meet the weak.
+----------------------------------------------------------- */
 
 function shuffle(arr) {
   const a = [...arr];
@@ -58,62 +57,111 @@ function shuffle(arr) {
   return a;
 }
 
-function buildBracket(teams) {
-  const n = teams.length;
-  const slots = nextPowerOfTwo(n);
-  const byeCount = slots - n;
-  const shuffled = shuffle(teams);
-  const byeTeams = shuffled.slice(0, byeCount);
-  const playTeams = shuffled.slice(byeCount);
+function standingsFor(state) {
+  const table = {};
+  for (const t of state.teams) {
+    table[t.id] = { teamId: t.id, name: t.name, wins: 0, losses: 0, played: 0, byes: 0 };
+  }
+  const rounds = state.tournament?.rounds || [];
+  for (const round of rounds) {
+    for (const m of round.matches) {
+      if (m.isBye) {
+        if (table[m.teamAId]) {
+          table[m.teamAId].byes += 1;
+          table[m.teamAId].wins += 1; // a bye counts as a free win
+        }
+        continue;
+      }
+      if (!m.winnerId) continue;
+      const loserId = m.winnerId === m.teamAId ? m.teamBId : m.teamAId;
+      if (table[m.winnerId]) {
+        table[m.winnerId].wins += 1;
+        table[m.winnerId].played += 1;
+      }
+      if (table[loserId]) {
+        table[loserId].losses += 1;
+        table[loserId].played += 1;
+      }
+    }
+  }
+  return Object.values(table).sort(
+    (a, b) => b.wins - a.wins || a.losses - b.losses || a.name.localeCompare(b.name)
+  );
+}
 
-  const byeMatches = byeTeams.map((t) => ({
-    id: makeId("m"),
-    teamAId: t.id,
-    teamBId: null,
-    winnerId: t.id,
-    isBye: true,
-  }));
+function alreadyPlayed(state, aId, bId) {
+  const rounds = state.tournament?.rounds || [];
+  for (const round of rounds) {
+    for (const m of round.matches) {
+      if (m.isBye) continue;
+      if (
+        (m.teamAId === aId && m.teamBId === bId) ||
+        (m.teamAId === bId && m.teamBId === aId)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
-  const playMatches = [];
-  for (let i = 0; i < playTeams.length; i += 2) {
-    playMatches.push({
+function roundIsComplete(round) {
+  return round.matches.every((m) => m.isBye || m.winnerId);
+}
+
+function buildRound(state, roundNumber) {
+  let order;
+  if (roundNumber === 0) {
+    order = shuffle(state.teams).map((t) => t.id);
+  } else {
+    order = standingsFor(state).map((s) => s.teamId);
+  }
+
+  const matches = [];
+  const pool = [...order];
+
+  // Odd team count: give the bye to the lowest-ranked team that has had
+  // the fewest byes so far.
+  if (pool.length % 2 === 1) {
+    const byeCounts = {};
+    for (const s of standingsFor(state)) byeCounts[s.teamId] = s.byes;
+    let byeId = null;
+    for (let i = pool.length - 1; i >= 0; i--) {
+      const id = pool[i];
+      if (byeId === null || (byeCounts[id] || 0) < (byeCounts[byeId] || 0)) {
+        byeId = id;
+      }
+    }
+    pool.splice(pool.indexOf(byeId), 1);
+    matches.push({
       id: makeId("m"),
-      teamAId: playTeams[i].id,
-      teamBId: playTeams[i + 1] ? playTeams[i + 1].id : null,
+      teamAId: byeId,
+      teamBId: null,
+      winnerId: byeId,
+      isBye: true,
+    });
+  }
+
+  // Pair neighbours in the ranking, skipping ahead when that pairing
+  // would be a repeat of a match they've already played.
+  while (pool.length > 0) {
+    const a = pool.shift();
+    let idx = 0;
+    while (idx < pool.length - 1 && alreadyPlayed(state, a, pool[idx])) idx++;
+    const b = pool.splice(idx, 1)[0];
+    matches.push({
+      id: makeId("m"),
+      teamAId: a,
+      teamBId: b,
       winnerId: null,
       isBye: false,
     });
   }
 
-  const round0 = shuffle([...byeMatches, ...playMatches]);
-  const rounds = [round0];
-  let count = round0.length;
-  while (count > 1) {
-    count = count / 2;
-    rounds.push(
-      Array.from({ length: count }, () => ({ id: makeId("m"), winnerId: null }))
-    );
-  }
-  return { rounds };
+  return { matches };
 }
 
-function applyMatchWinner(bracket, roundIdx, matchIdx, winnerId) {
-  const rounds = bracket.rounds.map((r) => r.map((m) => ({ ...m })));
-  rounds[roundIdx][matchIdx].winnerId = winnerId;
-  let r = roundIdx;
-  let i = matchIdx;
-  while (r + 1 < rounds.length) {
-    const nextI = Math.floor(i / 2);
-    if (rounds[r + 1][nextI].winnerId !== null) {
-      rounds[r + 1][nextI].winnerId = null;
-    }
-    r += 1;
-    i = nextI;
-  }
-  return { ...bracket, rounds };
-}
-
-/* ---------- action reducer ---------- */
+/* ---------------- action reducer ---------------- */
 
 function applyAction(state, action) {
   const s = {
@@ -152,23 +200,44 @@ function applyAction(state, action) {
       s.teams = s.teams.filter((t) => t.id !== action.id);
       break;
     }
-    case "generateBracket": {
-      if (s.teams.length >= 2) s.bracket = buildBracket(s.teams);
+    case "startTournament": {
+      if (s.teams.length >= 2) {
+        s.tournament = { rounds: [] };
+        s.tournament.rounds.push(buildRound(s, 0));
+      }
       break;
     }
-    case "resetBracket": {
-      s.bracket = null;
+    case "nextRound": {
+      const rounds = s.tournament?.rounds || [];
+      if (rounds.length && roundIsComplete(rounds[rounds.length - 1])) {
+        s.tournament = {
+          ...s.tournament,
+          rounds: [...rounds, buildRound(s, rounds.length)],
+        };
+      }
       break;
     }
     case "setMatchWinner": {
-      if (s.bracket) {
-        s.bracket = applyMatchWinner(
-          s.bracket,
-          action.roundIdx,
-          action.matchIdx,
-          action.winnerId
+      const rounds = s.tournament?.rounds;
+      if (rounds && rounds[action.roundIdx]) {
+        const newRounds = rounds.map((r, ri) =>
+          ri !== action.roundIdx
+            ? r
+            : {
+                ...r,
+                matches: r.matches.map((m, mi) =>
+                  mi === action.matchIdx ? { ...m, winnerId: action.winnerId } : m
+                ),
+              }
         );
+        // Changing an earlier result invalidates later rounds, since they
+        // were paired from standings that have now changed.
+        s.tournament = { ...s.tournament, rounds: newRounds.slice(0, action.roundIdx + 1) };
       }
+      break;
+    }
+    case "resetTournament": {
+      s.tournament = null;
       break;
     }
     default:
@@ -179,7 +248,7 @@ function applyAction(state, action) {
   return s;
 }
 
-/* ---------- handler (Netlify Functions v2) ---------- */
+/* ---------------- handler ---------------- */
 
 const JSON_HEADERS = {
   "Content-Type": "application/json",
@@ -199,10 +268,28 @@ export default async (req) => {
   }
 
   try {
-    const store = getStore("beer-olympics");
+    let getStore;
+    try {
+      ({ getStore } = await import("@netlify/blobs"));
+    } catch (e) {
+      return json(
+        { error: "Could not load the database library: " + String(e && e.message) },
+        500
+      );
+    }
+
+    let store;
+    try {
+      // "strong" makes reads return the very latest write. Without it a
+      // read can briefly return an older copy, which made scores appear
+      // to vanish and then come back a few seconds later.
+      store = getStore({ name: "beer-olympics", consistency: "strong" });
+    } catch (e) {
+      return json({ error: "Could not open the database: " + String(e && e.message) }, 500);
+    }
 
     const readState = async () => {
-      const raw = await store.get(KEY);
+      const raw = await store.get(KEY, { consistency: "strong" });
       if (!raw) return defaultState();
       try {
         return { ...defaultState(), ...JSON.parse(raw) };
@@ -217,14 +304,8 @@ export default async (req) => {
 
     if (req.method === "POST") {
       const body = await req.json().catch(() => ({}));
-
-      // Changes arrive as small actions and get applied on top of whatever is
-      // currently stored, so two people tapping at the same moment can't
-      // overwrite each other's changes.
       const actions = body.actions || (body.action ? [body.action] : []);
-      if (!actions.length) {
-        return json({ error: "No action provided" }, 400);
-      }
+      if (!actions.length) return json({ error: "No action provided" }, 400);
 
       let state = await readState();
       for (const a of actions) state = applyAction(state, a);
@@ -239,9 +320,6 @@ export default async (req) => {
   }
 };
 
-// Note: only declare the custom alias here. The default address
-// (/.netlify/functions/storage) is reserved by Netlify and always works
-// on its own — declaring it explicitly makes the deploy fail.
 export const config = {
   path: "/api/storage",
 };
