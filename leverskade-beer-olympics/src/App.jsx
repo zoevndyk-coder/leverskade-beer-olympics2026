@@ -1230,6 +1230,9 @@ function Roster({ state, dispatch }) {
 
 // Short, practical rules for each game. Where a game has lots of regional
 // variants, the common version is given — settle disputes on the night.
+const RULE_ALIASES = { "Rage Cage": "Rage Cage Battle" };
+const rulesFor = (name) => GAME_RULES[name] || GAME_RULES[RULE_ALIASES[name]] || null;
+
 const GAME_RULES = {
   "Flip Cup": {
     players: "Two teams, equal numbers",
@@ -1473,7 +1476,7 @@ function Info({ state, setTab }) {
           })}
         </div>
 
-        {openGame && GAME_RULES[openGame] && (
+        {openGame && rulesFor(openGame) && (
           <div
             style={{ background: "#f4f8f2", borderLeft: `2mm solid ${BRAND.green}` }}
             className="rounded-lg mt-3 px-3 py-2.5"
@@ -1494,20 +1497,20 @@ function Info({ state, setTab }) {
               </button>
             </div>
             <div className="text-[11.5px] text-[#6a7166] mb-0.5">
-              {GAME_RULES[openGame].players}
+              {rulesFor(openGame).players}
             </div>
-            {GAME_RULES[openGame].min && (
+            {rulesFor(openGame).min && (
               <div className="text-[11.5px] font-semibold mb-2" style={{ color: BRAND.orangeDark }}>
-                👥 {GAME_RULES[openGame].min}
+                👥 {rulesFor(openGame).min}
               </div>
             )}
 
             <ol className="m-0 pl-4 text-[12.5px] leading-relaxed">
-              {GAME_RULES[openGame].how.map((line, i) => (
+              {rulesFor(openGame).how.map((line, i) => (
                 <li key={i} className="mb-1 last:mb-0">{line}</li>
               ))}
             </ol>
-            {openGame === "Frisbee" && (
+            {(openGame === "Frisbee") && (
               <div className="mt-3 rounded-lg bg-white p-2">
                 <img
                   src={FRISBEE_DIAGRAM}
@@ -1519,12 +1522,12 @@ function Info({ state, setTab }) {
                 </p>
               </div>
             )}
-            {GAME_RULES[openGame].finish && (
+            {rulesFor(openGame).finish && (
               <div
                 style={{ background: BRAND.green, color: "#fff" }}
                 className="rounded-md px-2.5 py-2 mt-2.5 text-[12px] font-semibold leading-snug"
               >
-                🏆 {GAME_RULES[openGame].finish}
+                🏆 {rulesFor(openGame).finish}
               </div>
             )}
           </div>
