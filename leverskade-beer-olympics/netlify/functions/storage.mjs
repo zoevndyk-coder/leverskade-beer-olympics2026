@@ -34,7 +34,7 @@ function defaultState() {
     games: DEFAULT_GAMES,
     scores: {},
     teams: [],
-    tournament: null, // { rounds: [ { matches: [...] } ] }
+    tournament: null, // { matches: [...] }
     rev: 0,
   };
 }
@@ -57,31 +57,37 @@ function shuffle(arr) {
   return a;
 }
 
+/* -------- tournament: group stage, then knockout --------
+   Phase 1 "group": every team plays GROUP_GAMES matches. Pairing is
+   continuous — the moment two teams are free they're matched on record,
+   so nobody waits for a round to finish. No rematches.
+   Phase 2 "knockout": the top teams advance (8, 4 or 2 depending on how
+   many teams there are), seeded by group record. Lose and you're out.
+--------------------------------------------------------- */
+
+function groupMatches(state) {
+  return (state.tournament?.matches || []).filter((m) => m.phase === "group");
+}
+
+function knockoutRounds(state) {
+  return state.tournament?.knockout?.rounds || [];
+}
+
 function standingsFor(state) {
   const table = {};
   for (const t of state.teams) {
-    table[t.id] = { teamId: t.id, name: t.name, wins: 0, losses: 0, played: 0, byes: 0 };
+    table[t.id] = { teamId: t.id, name: t.name, wins: 0, losses: 0, played: 0 };
   }
-  const rounds = state.tournament?.rounds || [];
-  for (const round of rounds) {
-    for (const m of round.matches) {
-      if (m.isBye) {
-        if (table[m.teamAId]) {
-          table[m.teamAId].byes += 1;
-          table[m.teamAId].wins += 1; // a bye counts as a free win
-        }
-        continue;
-      }
-      if (!m.winnerId) continue;
-      const loserId = m.winnerId === m.teamAId ? m.teamBId : m.teamAId;
-      if (table[m.winnerId]) {
-        table[m.winnerId].wins += 1;
-        table[m.winnerId].played += 1;
-      }
-      if (table[loserId]) {
-        table[loserId].losses += 1;
-        table[loserId].played += 1;
-      }
+  for (const m of groupMatches(state)) {
+    if (!m.winnerId) continue;
+    const loserId = m.winnerId === m.teamAId ? m.teamBId : m.teamAId;
+    if (table[m.winnerId]) {
+      table[m.winnerId].wins += 1;
+      table[m.winnerId].played += 1;
+    }
+    if (table[loserId]) {
+      table[loserId].losses += 1;
+      table[loserId].played += 1;
     }
   }
   return Object.values(table).sort(
@@ -90,75 +96,142 @@ function standingsFor(state) {
 }
 
 function alreadyPlayed(state, aId, bId) {
-  const rounds = state.tournament?.rounds || [];
-  for (const round of rounds) {
-    for (const m of round.matches) {
-      if (m.isBye) continue;
-      if (
-        (m.teamAId === aId && m.teamBId === bId) ||
-        (m.teamAId === bId && m.teamBId === aId)
-      ) {
-        return true;
-      }
+  for (const m of state.tournament?.matches || []) {
+    if (
+      (m.teamAId === aId && m.teamBId === bId) ||
+      (m.teamAId === bId && m.teamBId === aId)
+    ) {
+      return true;
     }
   }
   return false;
 }
 
-function roundIsComplete(round) {
-  return round.matches.every((m) => m.isBye || m.winnerId);
+function busyTeamIds(state) {
+  const busy = new Set();
+  for (const m of state.tournament?.matches || []) {
+    if (!m.winnerId) {
+      busy.add(m.teamAId);
+      busy.add(m.teamBId);
+    }
+  }
+  return busy;
 }
 
-function buildRound(state, roundNumber) {
-  let order;
-  if (roundNumber === 0) {
-    order = shuffle(state.teams).map((t) => t.id);
-  } else {
-    order = standingsFor(state).map((s) => s.teamId);
+// How many teams go through to the knockout stage.
+function knockoutSize(teamCount) {
+  if (teamCount >= 8) return 8;
+  if (teamCount >= 4) return 4;
+  return 2;
+}
+
+// The group stage is done when nothing is still being played and no further
+// match can be scheduled. (With an odd number of teams one team can end up a
+// match short — that's unavoidable, since the total number of match slots
+// has to be even.)
+function groupStageComplete(state) {
+  const pending = groupMatches(state).some((m) => !m.winnerId);
+  if (pending) return false;
+  const before = groupMatches(state).length;
+  const after = pairWaitingTeams(state).matches.filter((m) => m.phase === "group").length;
+  return after === before;
+}
+
+// Continuous pairing for the group stage.
+function pairWaitingTeams(state) {
+  const target = state.tournament?.groupGames ?? 3;
+  const matches = [...(state.tournament?.matches || [])];
+  const table = standingsFor(state);
+  const busy = busyTeamIds(state);
+
+  // Count matches already scheduled (not just finished) so a team never
+  // gets booked beyond its quota.
+  const scheduled = {};
+  for (const t of state.teams) scheduled[t.id] = 0;
+  for (const m of matches) {
+    if (m.phase !== "group") continue;
+    if (scheduled[m.teamAId] !== undefined) scheduled[m.teamAId] += 1;
+    if (scheduled[m.teamBId] !== undefined) scheduled[m.teamBId] += 1;
   }
 
-  const matches = [];
-  const pool = [...order];
+  // Free teams that still owe matches, fewest-scheduled first so the field
+  // stays roughly level, then by record so winners meet winners.
+  let free = table
+    .filter((r) => !busy.has(r.teamId))
+    .filter((r) => (scheduled[r.teamId] ?? 0) < target)
+    .sort(
+      (a, b) =>
+        (scheduled[a.teamId] ?? 0) - (scheduled[b.teamId] ?? 0) ||
+        b.wins - a.wins ||
+        a.losses - b.losses
+    )
+    .map((r) => r.teamId);
 
-  // Odd team count: give the bye to the lowest-ranked team that has had
-  // the fewest byes so far.
-  if (pool.length % 2 === 1) {
-    const byeCounts = {};
-    for (const s of standingsFor(state)) byeCounts[s.teamId] = s.byes;
-    let byeId = null;
-    for (let i = pool.length - 1; i >= 0; i--) {
-      const id = pool[i];
-      if (byeId === null || (byeCounts[id] || 0) < (byeCounts[byeId] || 0)) {
-        byeId = id;
-      }
-    }
-    pool.splice(pool.indexOf(byeId), 1);
-    matches.push({
-      id: makeId("m"),
-      teamAId: byeId,
-      teamBId: null,
-      winnerId: byeId,
-      isBye: true,
-    });
-  }
-
-  // Pair neighbours in the ranking, skipping ahead when that pairing
-  // would be a repeat of a match they've already played.
-  while (pool.length > 0) {
-    const a = pool.shift();
-    let idx = 0;
-    while (idx < pool.length - 1 && alreadyPlayed(state, a, pool[idx])) idx++;
-    const b = pool.splice(idx, 1)[0];
+  let working = state;
+  while (free.length >= 2) {
+    const a = free.shift();
+    // Prefer someone they haven't played; fall back to a rematch rather
+    // than letting the group stage stall with matches still owed.
+    let idx = free.findIndex((b) => !alreadyPlayed(working, a, b));
+    if (idx === -1) idx = 0;
+    const b = free.splice(idx, 1)[0];
     matches.push({
       id: makeId("m"),
       teamAId: a,
       teamBId: b,
       winnerId: null,
-      isBye: false,
+      phase: "group",
     });
+    working = { ...working, tournament: { ...working.tournament, matches } };
   }
 
-  return { matches };
+  return { ...state.tournament, matches };
+}
+
+// Builds the first knockout round from the group standings, seeded so the
+// best team faces the worst qualifier.
+function buildKnockout(state) {
+  const size = Math.min(knockoutSize(state.teams.length), state.teams.length);
+  const seeds = standingsFor(state).slice(0, size).map((r) => r.teamId);
+  const round = [];
+  for (let i = 0; i < size / 2; i++) {
+    round.push({
+      id: makeId("m"),
+      teamAId: seeds[i],
+      teamBId: seeds[size - 1 - i],
+      winnerId: null,
+      phase: "knockout",
+    });
+  }
+  return { rounds: [round], size };
+}
+
+function knockoutNextRound(state) {
+  const rounds = knockoutRounds(state);
+  if (!rounds.length) return state.tournament.knockout;
+  const last = rounds[rounds.length - 1];
+  if (!last.every((m) => m.winnerId)) return state.tournament.knockout;
+  if (last.length === 1) return state.tournament.knockout; // final is done
+  const winners = last.map((m) => m.winnerId);
+  const next = [];
+  for (let i = 0; i < winners.length; i += 2) {
+    next.push({
+      id: makeId("m"),
+      teamAId: winners[i],
+      teamBId: winners[i + 1],
+      winnerId: null,
+      phase: "knockout",
+    });
+  }
+  return { ...state.tournament.knockout, rounds: [...rounds, next] };
+}
+
+function tournamentChampion(state) {
+  const rounds = knockoutRounds(state);
+  if (!rounds.length) return null;
+  const last = rounds[rounds.length - 1];
+  if (last.length === 1 && last[0].winnerId) return last[0].winnerId;
+  return null;
 }
 
 /* ---------------- action reducer ---------------- */
@@ -202,37 +275,59 @@ function applyAction(state, action) {
     }
     case "startTournament": {
       if (s.teams.length >= 2) {
-        s.tournament = { rounds: [] };
-        s.tournament.rounds.push(buildRound(s, 0));
+        s.tournament = {
+          phase: "group",
+          groupGames: Math.max(1, Number(action.groupGames) || 3),
+          matches: [],
+          knockout: null,
+        };
+        s.tournament = pairWaitingTeams(s);
       }
       break;
     }
-    case "nextRound": {
-      const rounds = s.tournament?.rounds || [];
-      if (rounds.length && roundIsComplete(rounds[rounds.length - 1])) {
+    case "pairWaiting": {
+      if (s.tournament && s.tournament.phase === "group") {
+        s.tournament = pairWaitingTeams(s);
+      }
+      break;
+    }
+    case "startKnockout": {
+      if (s.tournament && s.tournament.phase === "group" && groupStageComplete(s)) {
         s.tournament = {
           ...s.tournament,
-          rounds: [...rounds, buildRound(s, rounds.length)],
+          phase: "knockout",
+          knockout: buildKnockout(s),
         };
       }
       break;
     }
     case "setMatchWinner": {
-      const rounds = s.tournament?.rounds;
-      if (rounds && rounds[action.roundIdx]) {
-        const newRounds = rounds.map((r, ri) =>
-          ri !== action.roundIdx
-            ? r
-            : {
-                ...r,
-                matches: r.matches.map((m, mi) =>
-                  mi === action.matchIdx ? { ...m, winnerId: action.winnerId } : m
-                ),
-              }
-        );
-        // Changing an earlier result invalidates later rounds, since they
-        // were paired from standings that have now changed.
-        s.tournament = { ...s.tournament, rounds: newRounds.slice(0, action.roundIdx + 1) };
+      if (s.tournament) {
+        const inGroup = (s.tournament.matches || []).some((m) => m.id === action.matchId);
+        if (inGroup) {
+          s.tournament = {
+            ...s.tournament,
+            matches: s.tournament.matches.map((m) =>
+              m.id === action.matchId ? { ...m, winnerId: action.winnerId } : m
+            ),
+          };
+          if (s.tournament.phase === "group") {
+            s.tournament = pairWaitingTeams(s);
+          }
+        } else if (s.tournament.knockout) {
+          const rounds = s.tournament.knockout.rounds.map((r) =>
+            r.map((m) => (m.id === action.matchId ? { ...m, winnerId: action.winnerId } : m))
+          );
+          // Correcting an earlier knockout result invalidates later rounds.
+          const changedIdx = rounds.findIndex((r) =>
+            r.some((m) => m.id === action.matchId)
+          );
+          s.tournament = {
+            ...s.tournament,
+            knockout: { ...s.tournament.knockout, rounds: rounds.slice(0, changedIdx + 1) },
+          };
+          s.tournament = { ...s.tournament, knockout: knockoutNextRound(s) };
+        }
       }
       break;
     }
