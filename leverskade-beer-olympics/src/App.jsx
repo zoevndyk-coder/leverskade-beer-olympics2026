@@ -47,8 +47,12 @@ function makeId(prefix) {
   return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 }
 
-function groupMatches(state) {
-  return (state.tournament?.matches || []).filter((m) => m.phase === "group");
+function groupRounds(state) {
+  return state.tournament?.rounds || [];
+}
+
+function groupMatchList(state) {
+  return groupRounds(state).flat();
 }
 
 function knockoutRounds(state) {
@@ -58,9 +62,17 @@ function knockoutRounds(state) {
 function standingsFor(state) {
   const table = {};
   for (const t of state.teams) {
-    table[t.id] = { teamId: t.id, name: t.name, wins: 0, losses: 0, played: 0 };
+    table[t.id] = { teamId: t.id, name: t.name, wins: 0, losses: 0, played: 0, byes: 0 };
   }
-  for (const m of groupMatches(state)) {
+  for (const m of groupMatchList(state)) {
+    if (m.isBye) {
+      if (table[m.teamAId]) {
+        table[m.teamAId].byes += 1;
+        table[m.teamAId].wins += 1;
+        table[m.teamAId].played += 1;
+      }
+      continue;
+    }
     if (!m.winnerId) continue;
     const loserId = m.winnerId === m.teamAId ? m.teamBId : m.teamAId;
     if (table[m.winnerId]) {
@@ -77,6 +89,16 @@ function standingsFor(state) {
   );
 }
 
+function roundComplete(round) {
+  return round.every((m) => m.isBye || m.winnerId);
+}
+
+function groupStageComplete(state) {
+  const target = state.tournament?.groupGames ?? 3;
+  const rounds = groupRounds(state);
+  return rounds.length >= target && rounds.every(roundComplete);
+}
+
 function tournamentChampion(state) {
   const rounds = knockoutRounds(state);
   if (!rounds.length) return null;
@@ -85,7 +107,7 @@ function tournamentChampion(state) {
   return null;
 }
 
-function knockoutLabel(roundIdx, totalRounds, size) {
+function knockoutLabel(roundIdx, size) {
   const remaining = size / Math.pow(2, roundIdx);
   if (remaining === 2) return "Final";
   if (remaining === 4) return "Semifinals";
@@ -675,21 +697,12 @@ function BeerPong({ state, dispatch }) {
   const phase = tourn?.phase;
   const target = tourn?.groupGames ?? 3;
 
-  const gMatches = groupMatches(state);
+  const rounds = groupRounds(state);
   const table = standingsFor(state);
   const champion = tournamentChampion(state);
   const koRounds = knockoutRounds(state);
   const koSize = tourn?.knockout?.size ?? 0;
-
-  const liveGroup = gMatches.filter((m) => !m.winnerId);
-  const doneGroup = gMatches.filter((m) => m.winnerId);
-  const groupDone = phase === "group" && liveGroup.length === 0 && gMatches.length > 0;
-
-  const busy = new Set();
-  liveGroup.forEach((m) => { busy.add(m.teamAId); busy.add(m.teamBId); });
-  const waiting = state.teams.filter(
-    (t) => !busy.has(t.id) && (table.find((r) => r.teamId === t.id)?.played ?? 0) < target
-  );
+  const canStartKnockout = phase === "group" && groupStageComplete(state);
 
   const teamNameById = (id) =>
     id ? state.teams.find((t) => t.id === id)?.name || "—" : "TBD";
@@ -709,19 +722,33 @@ function BeerPong({ state, dispatch }) {
     }));
   };
 
-  const pickWinner = (matchId, winnerId) => {
+  const pickWinner = (matchId, winnerId) =>
     dispatch({ type: "setMatchWinner", matchId, winnerId });
-  };
 
   const handleReset = () => {
     if (!window.confirm("Reset the tournament? All match results are cleared.")) return;
     dispatch({ type: "resetTournament" }, (prev) => ({ ...prev, tournament: null }));
   };
 
-  const MatchCard = ({ m, faded }) => {
+  const maxRounds = Math.max(1, state.teams.length - 1);
+
+  const MatchCard = ({ m }) => {
+    if (m.isBye) {
+      return (
+        <Card style={{ background: "#f7f9f5" }}>
+          <div className="text-[12.5px] text-[#8a9186]">
+            🎟️{" "}
+            <span className="font-semibold" style={{ color: BRAND.greenDark }}>
+              {teamNameById(m.teamAId)}
+            </span>{" "}
+            sits this round out — counts as a win
+          </div>
+        </Card>
+      );
+    }
     const decided = !!m.winnerId;
     return (
-      <Card style={faded ? { opacity: 0.72 } : undefined}>
+      <Card style={decided ? { opacity: 0.8 } : undefined}>
         <div className="space-y-1.5">
           {[m.teamAId, m.teamBId].map((id) => {
             const isWinner = decided && id === m.winnerId;
@@ -760,9 +787,9 @@ function BeerPong({ state, dispatch }) {
     <div className="space-y-5">
       <Card style={{ background: `${BRAND.orange}14` }}>
         <p className="text-[12.5px] leading-snug" style={{ color: BRAND.orangeDark }}>
-          🍺 Everyone plays {target} group games — matched continuously, winners
-          against winners, so nobody waits around. The top {state.teams.length >= 8 ? 8 : state.teams.length >= 4 ? 4 : 2} then go
-          through to a knockout: lose and you're out.
+          🍺 {target} group rounds, then a knockout. Each round is drawn all at
+          once so every match can be played in any order. Winners are paired
+          with winners, and you never play the same team twice.
         </p>
       </Card>
 
@@ -827,24 +854,35 @@ function BeerPong({ state, dispatch }) {
             </div>
           )}
 
-          <Card>
-            <div className="text-[12.5px] font-semibold mb-2" style={{ color: BRAND.greenDark }}>
-              Group games per team
-            </div>
-            <div className="flex gap-2">
-              {[2, 3, 4].map((n) => (
-                <button key={n} onClick={() => setGroupGames(n)}
-                  style={{
-                    background: groupGames === n ? BRAND.green : "#fff",
-                    color: groupGames === n ? "#fff" : BRAND.greenDark,
-                    border: `1.5px solid ${groupGames === n ? BRAND.green : BRAND.mint}`,
-                  }}
-                  className="flex-1 rounded-lg py-2 text-[13px] font-bold">
-                  {n}
-                </button>
-              ))}
-            </div>
-          </Card>
+          {state.teams.length >= 2 && (
+            <Card>
+              <div className="text-[12.5px] font-semibold mb-2" style={{ color: BRAND.greenDark }}>
+                Group rounds (each team plays this many)
+              </div>
+              <div className="flex gap-2">
+                {[2, 3, 4].map((n) => {
+                  const allowed = n <= maxRounds;
+                  return (
+                    <button key={n} onClick={() => allowed && setGroupGames(n)} disabled={!allowed}
+                      style={{
+                        background: groupGames === n && allowed ? BRAND.green : "#fff",
+                        color: !allowed ? "#c9cec6" : groupGames === n ? "#fff" : BRAND.greenDark,
+                        border: `1.5px solid ${groupGames === n && allowed ? BRAND.green : BRAND.mint}`,
+                      }}
+                      className="flex-1 rounded-lg py-2 text-[13px] font-bold">
+                      {n}
+                    </button>
+                  );
+                })}
+              </div>
+              {maxRounds < 4 && (
+                <p className="text-[11.5px] text-[#8a9186] mt-2 mb-0">
+                  With {state.teams.length} teams the most you can play without
+                  repeating an opponent is {maxRounds}.
+                </p>
+              )}
+            </Card>
+          )}
 
           <button
             onClick={() => dispatch({ type: "startTournament", groupGames })}
@@ -873,49 +911,9 @@ function BeerPong({ state, dispatch }) {
             </Card>
           )}
 
-          {phase === "group" && (
-            <>
-              <div>
-                <SectionTitle icon={Target}>Playing now ({liveGroup.length})</SectionTitle>
-                {liveGroup.length === 0 ? (
-                  <Card><EmptyHint text="No matches running right now." /></Card>
-                ) : (
-                  <div className="space-y-2">
-                    {liveGroup.map((m) => <MatchCard key={m.id} m={m} />)}
-                  </div>
-                )}
-              </div>
-
-              {waiting.length > 0 && (
-                <Card style={{ background: "#f7f9f5" }}>
-                  <div className="text-[12.5px]" style={{ color: BRAND.greenDark }}>
-                    ⏳ Waiting: <span className="font-semibold">{waiting.map((t) => t.name).join(", ")}</span>
-                  </div>
-                  {waiting.length >= 2 && (
-                    <button onClick={() => dispatch({ type: "pairWaiting" })}
-                      style={{ background: BRAND.green }}
-                      className="mt-2 w-full rounded-lg py-2 text-[12.5px] font-bold text-white">
-                      Match up waiting teams
-                    </button>
-                  )}
-                </Card>
-              )}
-
-              {groupDone && (
-                <button
-                  onClick={() => dispatch({ type: "startKnockout" })}
-                  style={{ background: BRAND.orange }}
-                  className="w-full rounded-xl py-3 text-[14px] font-bold text-white flex items-center justify-center gap-2"
-                >
-                  <Trophy size={17} /> Group stage done — start knockout
-                </button>
-              )}
-            </>
-          )}
-
           {phase === "knockout" && koRounds.map((round, rIdx) => (
             <div key={rIdx}>
-              <SectionTitle icon={Trophy}>{knockoutLabel(rIdx, koRounds.length, koSize)}</SectionTitle>
+              <SectionTitle icon={Trophy}>{knockoutLabel(rIdx, koSize)}</SectionTitle>
               <div className="space-y-2">
                 {round.map((m) => <MatchCard key={m.id} m={m} />)}
               </div>
@@ -953,14 +951,32 @@ function BeerPong({ state, dispatch }) {
             </Card>
           </div>
 
-          {doneGroup.length > 0 && (
-            <div>
-              <SectionTitle icon={Check}>Finished group games ({doneGroup.length})</SectionTitle>
-              <div className="space-y-2">
-                {[...doneGroup].reverse().map((m) => <MatchCard key={m.id} m={m} faded />)}
-              </div>
-            </div>
+          {canStartKnockout && (
+            <button
+              onClick={() => dispatch({ type: "startKnockout" })}
+              style={{ background: BRAND.orange }}
+              className="w-full rounded-xl py-3 text-[14px] font-bold text-white flex items-center justify-center gap-2"
+            >
+              <Trophy size={17} /> Group rounds done — start knockout
+            </button>
           )}
+
+          {[...rounds].map((round, rIdx) => {
+            const idx = rounds.length - 1 - rIdx;
+            const r = rounds[idx];
+            const complete = roundComplete(r);
+            return (
+              <div key={idx}>
+                <SectionTitle icon={Target}>
+                  Round {idx + 1} of {target}
+                  {complete ? " ✓" : ""}
+                </SectionTitle>
+                <div className="space-y-2">
+                  {r.map((m) => <MatchCard key={m.id} m={m} />)}
+                </div>
+              </div>
+            );
+          })}
 
           <button onClick={handleReset} className="w-full text-[12px] font-semibold py-2" style={{ color: "#b7bdb4" }}>
             Reset tournament
@@ -1192,14 +1208,14 @@ function Info({ state }) {
             before the tournament starts.
           </Rule>
           <Rule>
-            <b>Group stage:</b> everyone plays {target} games. Matches run
-            continuously — as soon as two teams finish, they're paired up again,
-            so there's no standing around waiting for a round to end.
+            <b>Group stage:</b> {target} rounds. The whole round is drawn at
+            once, so every pairing is known upfront and matches can be played
+            in any order or on several tables at the same time.
           </Rule>
           <Rule>
-            Pairings are based on record, so winners face winners and everyone
-            gets opponents at their level. You won't be matched against the same
-            team twice if it can be avoided.
+            Round 1 is a random draw. After that teams are ranked by record and
+            paired with a similar opponent — winners face winners, losers face
+            losers — and you never play the same team twice.
           </Rule>
           <Rule>
             <b>Knockout:</b> the top {koSize} teams go through, seeded so the
