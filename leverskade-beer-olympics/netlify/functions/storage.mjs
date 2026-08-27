@@ -2,7 +2,7 @@ const KEY = "state-v1";
 
 const DEFAULT_GAMES = [
   "Flip Cup",
-  "Rage Cage",
+  "Rage Cage Battle",
   "Flunkyball",
   "Cornhole",
   "Kubb",
