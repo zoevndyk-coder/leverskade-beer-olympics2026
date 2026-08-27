@@ -198,6 +198,29 @@ function trickShotChampion(state) {
   return best;
 }
 
+// Everyone's single best game (Trick Shots excluded — that has its own award).
+function rankedSprint(state) {
+  return state.participants
+    .map((p) => {
+      const s = state.scores[p.id] || {};
+      let best = { game: null, count: 0 };
+      for (const [game, count] of Object.entries(s)) {
+        if (game === "Trick Shots") continue;
+        if (count > best.count) best = { game, count };
+      }
+      return { participant: p, game: best.game, count: best.count };
+    })
+    .filter((r) => r.count > 0)
+    .sort((a, b) => b.count - a.count || a.participant.name.localeCompare(b.participant.name));
+}
+
+function rankedTrickShots(state) {
+  return state.participants
+    .map((p) => ({ participant: p, count: state.scores[p.id]?.["Trick Shots"] || 0 }))
+    .filter((r) => r.count > 0)
+    .sort((a, b) => b.count - a.count || a.participant.name.localeCompare(b.participant.name));
+}
+
 function rankedOverall(state) {
   return state.participants
     .map((p) => ({ participant: p, points: totalPoints(state, p.id) }))
@@ -433,13 +456,13 @@ function Card({ children, style }) {
 function Leaderboard({ state }) {
   const ranked = rankedOverall(state);
   const top3 = ranked.slice(0, 3);
-  const rest = ranked.slice(3).filter((r) => r.points > 0);
-  const zeroes = ranked.filter((r) => r.points === 0);
   const sprinter = bestSprinter(state);
   const trickChamp = trickShotChampion(state);
   const podiumOrder = [top3[1], top3[0], top3[2]]; // 2nd, 1st, 3rd visual order
   const champId = tournamentChampion(state);
   const champTeam = state.teams.find((t) => t.id === champId);
+  const sprintRanking = rankedSprint(state);
+  const trickRanking = rankedTrickShots(state);
 
   return (
     <div className="space-y-5">
@@ -541,25 +564,110 @@ function Leaderboard({ state }) {
             <EmptyHint text="Everyone's tied at zero — the games haven't started." />
           ) : (
             <ul className="divide-y" style={{ borderColor: BRAND.mint }}>
-              {[...rest, ...(rest.length ? zeroes : [])].map((r, i) => (
-                <li key={r.participant.id} className="flex items-center justify-between py-2 text-[13.5px]">
-                  <span className="flex items-center gap-2">
-                    <span className="text-[11px] text-[#9aa39a] w-5">{i + 4}</span>
-                    <span className="font-medium">{r.participant.name}</span>
-                  </span>
-                  <span
-                    style={{ color: r.points > 0 ? BRAND.greenDark : "#b7bdb4" }}
-                    className="font-bold"
+              {ranked.map((r, i) => {
+                const medal = r.points > 0 && i < 3 ? medalStyles[i] : null;
+                return (
+                  <li
+                    key={r.participant.id}
+                    className="flex items-center justify-between py-2 text-[13.5px]"
                   >
-                    {r.points} pt{r.points === 1 ? "" : "s"}
-                  </span>
-                </li>
-              ))}
+                    <span className="flex items-center gap-2 min-w-0">
+                      {medal ? (
+                        <span
+                          style={{ background: medal.bg, border: `1.5px solid ${medal.ring}` }}
+                          className="w-5 h-5 rounded-full flex-none flex items-center justify-center text-[10px] font-bold"
+                        >
+                          {i + 1}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-[#9aa39a] w-5 flex-none text-center">
+                          {i + 1}
+                        </span>
+                      )}
+                      <span className={medal ? "font-bold truncate" : "font-medium truncate"}>
+                        {r.participant.name}
+                      </span>
+                    </span>
+                    <span
+                      style={{ color: r.points > 0 ? BRAND.greenDark : "#b7bdb4" }}
+                      className="font-bold flex-none"
+                    >
+                      {r.points} pt{r.points === 1 ? "" : "s"}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Card>
       </div>
+      <div>
+        <SectionTitle icon={Target}>Best Sprinter Ranking</SectionTitle>
+        <p className="text-[11.5px] text-[#8a9186] -mt-2 mb-2">
+          Highest score in any single game (Trick Shots excluded).
+        </p>
+        <MiniTable
+          rows={sprintRanking}
+          suffix=""
+          empty="No wins logged yet."
+        />
+      </div>
+
+      <div>
+        <SectionTitle icon={Award}>Trick Shot Ranking</SectionTitle>
+        <p className="text-[11.5px] text-[#8a9186] -mt-2 mb-2">
+          Most Trick Shot wins.
+        </p>
+        <MiniTable
+          rows={trickRanking}
+          suffix=""
+          empty="No trick shots logged yet."
+        />
+      </div>
     </div>
+  );
+}
+
+function MiniTable({ rows, empty, suffix }) {
+  if (!rows.length) return <Card><EmptyHint text={empty} /></Card>;
+  return (
+    <Card>
+      <ul className="divide-y" style={{ borderColor: BRAND.mint }}>
+        {rows.map((r, i) => {
+          const medal = i < 3 ? medalStyles[i] : null;
+          return (
+            <li
+              key={r.participant.id}
+              className="flex items-center justify-between py-2 text-[13.5px]"
+            >
+              <span className="flex items-center gap-2 min-w-0">
+                {medal ? (
+                  <span
+                    style={{ background: medal.bg, border: `1.5px solid ${medal.ring}` }}
+                    className="w-5 h-5 rounded-full flex-none flex items-center justify-center text-[10px] font-bold"
+                  >
+                    {i + 1}
+                  </span>
+                ) : (
+                  <span className="text-[11px] text-[#9aa39a] w-5 flex-none text-center">
+                    {i + 1}
+                  </span>
+                )}
+                <span className={medal ? "font-bold truncate" : "font-medium truncate"}>
+                  {r.participant.name}
+                </span>
+                {r.game && (
+                  <span className="text-[11px] text-[#8a9186] truncate">· {r.game}</span>
+                )}
+              </span>
+              <span className="font-bold flex-none" style={{ color: BRAND.greenDark }}>
+                {r.count}{suffix}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
   );
 }
 
