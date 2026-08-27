@@ -239,6 +239,9 @@ export default async (req) => {
   }
 };
 
+// Note: only declare the custom alias here. The default address
+// (/.netlify/functions/storage) is reserved by Netlify and always works
+// on its own — declaring it explicitly makes the deploy fail.
 export const config = {
-  path: ["/api/storage", "/.netlify/functions/storage"],
+  path: "/api/storage",
 };
