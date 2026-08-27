@@ -439,6 +439,7 @@ function Leaderboard({ state }) {
   const trickChamp = trickShotChampion(state);
   const podiumOrder = [top3[1], top3[0], top3[2]]; // 2nd, 1st, 3rd visual order
   const champId = tournamentChampion(state);
+  const champTeam = state.teams.find((t) => t.id === champId);
 
   return (
     <div className="space-y-5">
@@ -521,8 +522,13 @@ function Leaderboard({ state }) {
                 Beer Pong Champions
               </div>
               <div className="text-[13px] font-semibold">
-                {state.teams.find((t) => t.id === champId)?.name || "—"}
+                {champTeam?.name || "—"}
               </div>
+              {champTeam?.playerNames?.length > 0 && (
+                <div className="text-[11.5px] text-[#5a6156] mt-0.5">
+                  {champTeam.playerNames.join(" · ")}
+                </div>
+              )}
             </div>
           </div>
         </Card>
@@ -688,6 +694,7 @@ function BeerPong({ state, dispatch }) {
   const rounds = groupRounds(state);
   const table = standingsFor(state);
   const champion = tournamentChampion(state);
+  const championTeam = state.teams.find((t) => t.id === champion);
   const koRounds = knockoutRounds(state);
   const koSize = tourn?.knockout?.size ?? 0;
 
@@ -916,11 +923,18 @@ function BeerPong({ state, dispatch }) {
     <div className="space-y-5">
       {champion ? (
         <Card style={{ background: `linear-gradient(135deg, ${BRAND.orange}30, ${BRAND.mint}70)` }}>
-          <div className="flex items-center gap-2 justify-center py-2">
-            <Crown size={22} style={{ color: BRAND.orangeDark }} />
-            <span style={{ fontFamily: "'Baloo 2', sans-serif", color: BRAND.orangeDark }} className="text-[16px] font-extrabold">
-              {nameOf(champion)} — Champions!
-            </span>
+          <div className="text-center py-2">
+            <div className="flex items-center gap-2 justify-center">
+              <Crown size={22} style={{ color: BRAND.orangeDark }} />
+              <span style={{ fontFamily: "'Baloo 2', sans-serif", color: BRAND.orangeDark }} className="text-[16px] font-extrabold">
+                {nameOf(champion)} — Champions!
+              </span>
+            </div>
+            {championTeam?.playerNames?.length > 0 && (
+              <div className="text-[12.5px] font-semibold mt-1" style={{ color: BRAND.greenDark }}>
+                {championTeam.playerNames.join(" · ")}
+              </div>
+            )}
           </div>
         </Card>
       ) : (
