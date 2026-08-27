@@ -45,31 +45,29 @@ function makeId(prefix) {
   return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function groupMatches(state) {
+  return (state.tournament?.matches || []).filter((m) => m.phase === "group");
+}
+
+function knockoutRounds(state) {
+  return state.tournament?.knockout?.rounds || [];
+}
+
 function standingsFor(state) {
   const table = {};
   for (const t of state.teams) {
-    table[t.id] = { teamId: t.id, name: t.name, wins: 0, losses: 0, played: 0, byes: 0 };
+    table[t.id] = { teamId: t.id, name: t.name, wins: 0, losses: 0, played: 0 };
   }
-  const rounds = state.tournament?.rounds || [];
-  for (const round of rounds) {
-    for (const m of round.matches) {
-      if (m.isBye) {
-        if (table[m.teamAId]) {
-          table[m.teamAId].byes += 1;
-          table[m.teamAId].wins += 1;
-        }
-        continue;
-      }
-      if (!m.winnerId) continue;
-      const loserId = m.winnerId === m.teamAId ? m.teamBId : m.teamAId;
-      if (table[m.winnerId]) {
-        table[m.winnerId].wins += 1;
-        table[m.winnerId].played += 1;
-      }
-      if (table[loserId]) {
-        table[loserId].losses += 1;
-        table[loserId].played += 1;
-      }
+  for (const m of groupMatches(state)) {
+    if (!m.winnerId) continue;
+    const loserId = m.winnerId === m.teamAId ? m.teamBId : m.teamAId;
+    if (table[m.winnerId]) {
+      table[m.winnerId].wins += 1;
+      table[m.winnerId].played += 1;
+    }
+    if (table[loserId]) {
+      table[loserId].losses += 1;
+      table[loserId].played += 1;
     }
   }
   return Object.values(table).sort(
@@ -77,18 +75,20 @@ function standingsFor(state) {
   );
 }
 
-function roundIsComplete(round) {
-  return round.matches.every((m) => m.isBye || m.winnerId);
+function tournamentChampion(state) {
+  const rounds = knockoutRounds(state);
+  if (!rounds.length) return null;
+  const last = rounds[rounds.length - 1];
+  if (last.length === 1 && last[0].winnerId) return last[0].winnerId;
+  return null;
 }
 
-// The leader once every round played so far is finished, and only if
-// they're clear of second place.
-function tournamentLeader(state) {
-  const rounds = state.tournament?.rounds || [];
-  if (!rounds.length || !rounds.every(roundIsComplete)) return null;
-  const table = standingsFor(state);
-  if (table.length < 2) return table[0] || null;
-  return table[0].wins > table[1].wins ? table[0] : null;
+function knockoutLabel(roundIdx, totalRounds, size) {
+  const remaining = size / Math.pow(2, roundIdx);
+  if (remaining === 2) return "Final";
+  if (remaining === 4) return "Semifinals";
+  if (remaining === 8) return "Quarterfinals";
+  return `Knockout round ${roundIdx + 1}`;
 }
 
 function defaultState() {
@@ -97,7 +97,7 @@ function defaultState() {
     games: DEFAULT_GAMES,
     scores: {}, // { participantId: { gameName: count } }
     teams: [], // { id, name, playerNames: [] }
-    tournament: null, // { rounds: [ { matches: [...] } ] }
+    tournament: null, // { matches: [...] }
   };
 }
 
@@ -426,8 +426,7 @@ function Leaderboard({ state }) {
   const sprinter = bestSprinter(state);
   const trickChamp = trickShotChampion(state);
   const podiumOrder = [top3[1], top3[0], top3[2]]; // 2nd, 1st, 3rd visual order
-  const leader = tournamentLeader(state);
-  const champId = leader ? leader.teamId : null;
+  const champId = tournamentChampion(state);
 
   return (
     <div className="space-y-5">
@@ -665,13 +664,28 @@ function BeerPong({ state, dispatch }) {
   const [teamName, setTeamName] = useState("");
   const [p1, setP1] = useState("");
   const [p2, setP2] = useState("");
+  const [groupGames, setGroupGames] = useState(3);
 
-  const rounds = state.tournament?.rounds || [];
-  const started = rounds.length > 0;
+  const tourn = state.tournament;
+  const started = !!tourn;
+  const phase = tourn?.phase;
+  const target = tourn?.groupGames ?? 3;
+
+  const gMatches = groupMatches(state);
   const table = standingsFor(state);
-  const leader = tournamentLeader(state);
-  const lastRound = rounds[rounds.length - 1];
-  const canStartNextRound = lastRound && roundIsComplete(lastRound);
+  const champion = tournamentChampion(state);
+  const koRounds = knockoutRounds(state);
+  const koSize = tourn?.knockout?.size ?? 0;
+
+  const liveGroup = gMatches.filter((m) => !m.winnerId);
+  const doneGroup = gMatches.filter((m) => m.winnerId);
+  const groupDone = phase === "group" && liveGroup.length === 0 && gMatches.length > 0;
+
+  const busy = new Set();
+  liveGroup.forEach((m) => { busy.add(m.teamAId); busy.add(m.teamBId); });
+  const waiting = state.teams.filter(
+    (t) => !busy.has(t.id) && (table.find((r) => r.teamId === t.id)?.played ?? 0) < target
+  );
 
   const teamNameById = (id) =>
     id ? state.teams.find((t) => t.id === id)?.name || "—" : "TBD";
@@ -681,9 +695,7 @@ function BeerPong({ state, dispatch }) {
     const players = [p1, p2].filter(Boolean);
     const name = teamName.trim() || players.join(" & ");
     dispatch({ type: "addTeam", name, playerNames: players });
-    setTeamName("");
-    setP1("");
-    setP2("");
+    setTeamName(""); setP1(""); setP2("");
   };
 
   const removeTeam = (id) => {
@@ -693,20 +705,8 @@ function BeerPong({ state, dispatch }) {
     }));
   };
 
-  const pickWinner = (roundIdx, matchIdx, winnerId) => {
-    dispatch({ type: "setMatchWinner", roundIdx, matchIdx, winnerId }, (prev) => {
-      const rs = prev.tournament.rounds.map((r, ri) =>
-        ri !== roundIdx
-          ? r
-          : {
-              ...r,
-              matches: r.matches.map((m, mi) =>
-                mi === matchIdx ? { ...m, winnerId } : m
-              ),
-            }
-      );
-      return { ...prev, tournament: { ...prev.tournament, rounds: rs.slice(0, roundIdx + 1) } };
-    });
+  const pickWinner = (matchId, winnerId) => {
+    dispatch({ type: "setMatchWinner", matchId, winnerId });
   };
 
   const handleReset = () => {
@@ -714,205 +714,251 @@ function BeerPong({ state, dispatch }) {
     dispatch({ type: "resetTournament" }, (prev) => ({ ...prev, tournament: null }));
   };
 
+  const MatchCard = ({ m, faded }) => {
+    const decided = !!m.winnerId;
+    return (
+      <Card style={faded ? { opacity: 0.72 } : undefined}>
+        <div className="space-y-1.5">
+          {[m.teamAId, m.teamBId].map((id) => {
+            const isWinner = decided && id === m.winnerId;
+            const isLoser = decided && id !== m.winnerId;
+            return (
+              <button
+                key={id}
+                onClick={() => pickWinner(m.id, id)}
+                style={{
+                  background: isWinner ? BRAND.mint : "#fff",
+                  border: `1.5px solid ${isWinner ? BRAND.green : BRAND.mint}`,
+                  opacity: isLoser ? 0.5 : 1,
+                }}
+                className="w-full flex items-center justify-between rounded-lg px-3 py-2 text-left"
+              >
+                <span
+                  style={{ textDecoration: isLoser ? "line-through" : "none" }}
+                  className="text-[13px] font-semibold"
+                >
+                  {teamNameById(id)}
+                </span>
+                {isWinner && <Check size={15} style={{ color: BRAND.greenDark }} />}
+              </button>
+            );
+          })}
+        </div>
+      </Card>
+    );
+  };
+
+  const qualifiedIds = new Set(
+    koRounds[0]?.flatMap((m) => [m.teamAId, m.teamBId]) || []
+  );
+
   return (
     <div className="space-y-5">
       <Card style={{ background: `${BRAND.orange}14` }}>
         <p className="text-[12.5px] leading-snug" style={{ color: BRAND.orangeDark }}>
-          🍺 Beer Pong runs separately from the Overall Champion points. Everyone
-          plays every round — after round 1, winners are matched against winners
-          and losers against losers.
+          🍺 Everyone plays {target} group games — matched continuously, winners
+          against winners, so nobody waits around. The top {state.teams.length >= 8 ? 8 : state.teams.length >= 4 ? 4 : 2} then go
+          through to a knockout: lose and you're out.
         </p>
       </Card>
 
       {!started && (
-        <div>
-          <SectionTitle icon={UserPlus}>Add a Team</SectionTitle>
-          <Card>
-            <div className="space-y-2">
-              <input
-                value={teamName}
-                onChange={(e) => setTeamName(e.target.value)}
-                placeholder="Team name (optional)"
-                style={{ border: `1.5px solid ${BRAND.mint}` }}
-                className="w-full rounded-lg px-3 py-2 text-[13.5px] outline-none"
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <select
-                  value={p1}
-                  onChange={(e) => setP1(e.target.value)}
+        <>
+          <div>
+            <SectionTitle icon={UserPlus}>Add a Team</SectionTitle>
+            <Card>
+              <div className="space-y-2">
+                <input
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  placeholder="Team name (optional)"
                   style={{ border: `1.5px solid ${BRAND.mint}` }}
-                  className="rounded-lg px-2 py-2 text-[13px] bg-white"
-                >
-                  <option value="">Player 1</option>
-                  {state.participants.map((p) => (
-                    <option key={p.id} value={p.name}>{p.name}</option>
-                  ))}
-                </select>
-                <select
-                  value={p2}
-                  onChange={(e) => setP2(e.target.value)}
-                  style={{ border: `1.5px solid ${BRAND.mint}` }}
-                  className="rounded-lg px-2 py-2 text-[13px] bg-white"
-                >
-                  <option value="">Player 2</option>
-                  {state.participants.map((p) => (
-                    <option key={p.id} value={p.name}>{p.name}</option>
-                  ))}
-                </select>
+                  className="w-full rounded-lg px-3 py-2 text-[13.5px] outline-none"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <select value={p1} onChange={(e) => setP1(e.target.value)}
+                    style={{ border: `1.5px solid ${BRAND.mint}` }}
+                    className="rounded-lg px-2 py-2 text-[13px] bg-white">
+                    <option value="">Player 1</option>
+                    {state.participants.map((p) => (
+                      <option key={p.id} value={p.name}>{p.name}</option>
+                    ))}
+                  </select>
+                  <select value={p2} onChange={(e) => setP2(e.target.value)}
+                    style={{ border: `1.5px solid ${BRAND.mint}` }}
+                    className="rounded-lg px-2 py-2 text-[13px] bg-white">
+                    <option value="">Player 2</option>
+                    {state.participants.map((p) => (
+                      <option key={p.id} value={p.name}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <button onClick={addTeam} disabled={!p1}
+                  style={{ background: p1 ? BRAND.orange : "#eee", color: p1 ? "#fff" : "#aaa" }}
+                  className="w-full rounded-lg py-2 text-[13px] font-bold flex items-center justify-center gap-1.5">
+                  <Plus size={15} /> Add Team
+                </button>
               </div>
-              <button
-                onClick={addTeam}
-                disabled={!p1}
-                style={{ background: p1 ? BRAND.orange : "#eee", color: p1 ? "#fff" : "#aaa" }}
-                className="w-full rounded-lg py-2 text-[13px] font-bold flex items-center justify-center gap-1.5"
-              >
-                <Plus size={15} /> Add Team
-              </button>
+            </Card>
+          </div>
+
+          {state.teams.length > 0 && (
+            <div>
+              <SectionTitle icon={Users}>Teams ({state.teams.length})</SectionTitle>
+              <div className="space-y-2">
+                {state.teams.map((t) => (
+                  <Card key={t.id}>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div style={{ fontFamily: "'Baloo 2', sans-serif" }} className="text-[13.5px] font-bold">{t.name}</div>
+                        <div className="text-[11.5px] text-[#8a9186]">{t.playerNames.join(" & ")}</div>
+                      </div>
+                      <button onClick={() => removeTeam(t.id)}>
+                        <X size={15} className="text-[#c2c8bd]" />
+                      </button>
+                    </div>
+                  </Card>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <Card>
+            <div className="text-[12.5px] font-semibold mb-2" style={{ color: BRAND.greenDark }}>
+              Group games per team
+            </div>
+            <div className="flex gap-2">
+              {[2, 3, 4].map((n) => (
+                <button key={n} onClick={() => setGroupGames(n)}
+                  style={{
+                    background: groupGames === n ? BRAND.green : "#fff",
+                    color: groupGames === n ? "#fff" : BRAND.greenDark,
+                    border: `1.5px solid ${groupGames === n ? BRAND.green : BRAND.mint}`,
+                  }}
+                  className="flex-1 rounded-lg py-2 text-[13px] font-bold">
+                  {n}
+                </button>
+              ))}
             </div>
           </Card>
-        </div>
+
+          <button
+            onClick={() => dispatch({ type: "startTournament", groupGames })}
+            disabled={state.teams.length < 2}
+            style={{
+              background: state.teams.length < 2 ? "#eee" : BRAND.orange,
+              color: state.teams.length < 2 ? "#aaa" : "#fff",
+            }}
+            className="w-full rounded-xl py-3 text-[14px] font-bold flex items-center justify-center gap-2"
+          >
+            <Trophy size={17} /> Start Tournament
+          </button>
+        </>
       )}
 
-      {state.teams.length > 0 && !started && (
-        <div>
-          <SectionTitle icon={Users}>Teams ({state.teams.length})</SectionTitle>
-          <div className="space-y-2">
-            {state.teams.map((t) => (
-              <Card key={t.id}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div style={{ fontFamily: "'Baloo 2', sans-serif" }} className="text-[13.5px] font-bold">
-                      {t.name}
-                    </div>
-                    <div className="text-[11.5px] text-[#8a9186]">{t.playerNames.join(" & ")}</div>
-                  </div>
-                  <button onClick={() => removeTeam(t.id)}>
-                    <X size={15} className="text-[#c2c8bd]" />
-                  </button>
-                </div>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {!started ? (
-        <button
-          onClick={() => dispatch({ type: "startTournament" })}
-          disabled={state.teams.length < 2}
-          style={{
-            background: state.teams.length < 2 ? "#eee" : BRAND.orange,
-            color: state.teams.length < 2 ? "#aaa" : "#fff",
-          }}
-          className="w-full rounded-xl py-3 text-[14px] font-bold flex items-center justify-center gap-2"
-        >
-          <Trophy size={17} /> Start Tournament
-        </button>
-      ) : (
+      {started && (
         <>
-          {leader && (
-            <Card style={{ background: `linear-gradient(135deg, ${BRAND.orange}25, ${BRAND.mint}66)` }}>
-              <div className="flex items-center gap-2 justify-center py-1">
-                <Crown size={20} style={{ color: BRAND.orangeDark }} />
-                <span style={{ fontFamily: "'Baloo 2', sans-serif", color: BRAND.orangeDark }} className="text-[15px] font-extrabold">
-                  {leader.name} leads — {leader.wins}W
+          {champion && (
+            <Card style={{ background: `linear-gradient(135deg, ${BRAND.orange}30, ${BRAND.mint}70)` }}>
+              <div className="flex items-center gap-2 justify-center py-2">
+                <Crown size={22} style={{ color: BRAND.orangeDark }} />
+                <span style={{ fontFamily: "'Baloo 2', sans-serif", color: BRAND.orangeDark }} className="text-[16px] font-extrabold">
+                  {teamNameById(champion)} — Champions!
                 </span>
               </div>
             </Card>
           )}
 
-          <div>
-            <SectionTitle icon={ClipboardList}>Standings</SectionTitle>
-            <Card>
-              <ul className="divide-y" style={{ borderColor: BRAND.mint }}>
-                {table.map((row, i) => (
-                  <li key={row.teamId} className="flex items-center justify-between py-2 text-[13px]">
-                    <span className="flex items-center gap-2 min-w-0">
-                      <span className="text-[11px] text-[#9aa39a] w-4 flex-none">{i + 1}</span>
-                      <span className="font-semibold truncate">{row.name}</span>
-                    </span>
-                    <span className="flex-none font-bold" style={{ color: BRAND.greenDark }}>
-                      {row.wins}W – {row.losses}L
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          </div>
+          {phase === "group" && (
+            <>
+              <div>
+                <SectionTitle icon={Target}>Playing now ({liveGroup.length})</SectionTitle>
+                {liveGroup.length === 0 ? (
+                  <Card><EmptyHint text="No matches running right now." /></Card>
+                ) : (
+                  <div className="space-y-2">
+                    {liveGroup.map((m) => <MatchCard key={m.id} m={m} />)}
+                  </div>
+                )}
+              </div>
 
-          {rounds.map((round, rIdx) => (
+              {waiting.length > 0 && (
+                <Card style={{ background: "#f7f9f5" }}>
+                  <div className="text-[12.5px]" style={{ color: BRAND.greenDark }}>
+                    ⏳ Waiting: <span className="font-semibold">{waiting.map((t) => t.name).join(", ")}</span>
+                  </div>
+                  {waiting.length >= 2 && (
+                    <button onClick={() => dispatch({ type: "pairWaiting" })}
+                      style={{ background: BRAND.green }}
+                      className="mt-2 w-full rounded-lg py-2 text-[12.5px] font-bold text-white">
+                      Match up waiting teams
+                    </button>
+                  )}
+                </Card>
+              )}
+
+              {groupDone && (
+                <button
+                  onClick={() => dispatch({ type: "startKnockout" })}
+                  style={{ background: BRAND.orange }}
+                  className="w-full rounded-xl py-3 text-[14px] font-bold text-white flex items-center justify-center gap-2"
+                >
+                  <Trophy size={17} /> Group stage done — start knockout
+                </button>
+              )}
+            </>
+          )}
+
+          {phase === "knockout" && koRounds.map((round, rIdx) => (
             <div key={rIdx}>
-              <SectionTitle icon={Target}>Round {rIdx + 1}</SectionTitle>
+              <SectionTitle icon={Trophy}>{knockoutLabel(rIdx, koRounds.length, koSize)}</SectionTitle>
               <div className="space-y-2">
-                {round.matches.map((match, mIdx) => {
-                  if (match.isBye) {
-                    return (
-                      <Card key={match.id} style={{ background: "#f7f9f5" }}>
-                        <div className="text-[12.5px] text-[#8a9186]">
-                          🎟️{" "}
-                          <span className="font-semibold" style={{ color: BRAND.greenDark }}>
-                            {teamNameById(match.teamAId)}
-                          </span>{" "}
-                          sits this round out (odd number of teams) — counts as a win
-                        </div>
-                      </Card>
-                    );
-                  }
-                  const decided = !!match.winnerId;
-                  return (
-                    <Card key={match.id}>
-                      <div className="space-y-1.5">
-                        {[match.teamAId, match.teamBId].map((id) => {
-                          const isWinner = decided && id === match.winnerId;
-                          const isLoser = decided && id !== match.winnerId;
-                          return (
-                            <button
-                              key={id}
-                              onClick={() => pickWinner(rIdx, mIdx, id)}
-                              style={{
-                                background: isWinner ? BRAND.mint : "#fff",
-                                border: `1.5px solid ${isWinner ? BRAND.green : BRAND.mint}`,
-                                opacity: isLoser ? 0.5 : 1,
-                              }}
-                              className="w-full flex items-center justify-between rounded-lg px-3 py-2 text-left"
-                            >
-                              <span
-                                style={{ textDecoration: isLoser ? "line-through" : "none" }}
-                                className="text-[13px] font-semibold"
-                              >
-                                {teamNameById(id)}
-                              </span>
-                              {isWinner && <Check size={15} style={{ color: BRAND.greenDark }} />}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </Card>
-                  );
-                })}
+                {round.map((m) => <MatchCard key={m.id} m={m} />)}
               </div>
             </div>
           ))}
 
-          {canStartNextRound ? (
-            <button
-              onClick={() => dispatch({ type: "nextRound" })}
-              style={{ background: BRAND.green }}
-              className="w-full rounded-xl py-3 text-[14px] font-bold text-white flex items-center justify-center gap-2"
-            >
-              <Plus size={17} /> Start Round {rounds.length + 1}
-            </button>
-          ) : (
-            <p className="text-center text-[12px] text-[#8a9186]">
-              Tap the winner of every match to unlock the next round.
-            </p>
+          <div>
+            <SectionTitle icon={ClipboardList}>
+              {phase === "knockout" ? "Group stage standings" : "Standings"}
+            </SectionTitle>
+            <Card>
+              <ul className="divide-y" style={{ borderColor: BRAND.mint }}>
+                {table.map((row, i) => {
+                  const through = phase === "knockout" && qualifiedIds.has(row.teamId);
+                  return (
+                    <li key={row.teamId} className="flex items-center justify-between py-2 text-[13px]"
+                        style={{ opacity: phase === "knockout" && !through ? 0.45 : 1 }}>
+                      <span className="flex items-center gap-2 min-w-0">
+                        <span className="text-[11px] text-[#9aa39a] w-4 flex-none">{i + 1}</span>
+                        <span className="font-semibold truncate">{row.name}</span>
+                        {through && (
+                          <span style={{ background: BRAND.mint, color: BRAND.greenDark }}
+                                className="text-[9.5px] font-bold rounded-full px-1.5 py-0.5 flex-none">
+                            THROUGH
+                          </span>
+                        )}
+                      </span>
+                      <span className="flex-none font-bold" style={{ color: BRAND.greenDark }}>
+                        {row.wins}W – {row.losses}L
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </Card>
+          </div>
+
+          {doneGroup.length > 0 && (
+            <div>
+              <SectionTitle icon={Check}>Finished group games ({doneGroup.length})</SectionTitle>
+              <div className="space-y-2">
+                {[...doneGroup].reverse().map((m) => <MatchCard key={m.id} m={m} faded />)}
+              </div>
+            </div>
           )}
 
-          <button
-            onClick={handleReset}
-            className="w-full text-[12px] font-semibold py-2"
-            style={{ color: "#b7bdb4" }}
-          >
+          <button onClick={handleReset} className="w-full text-[12px] font-semibold py-2" style={{ color: "#b7bdb4" }}>
             Reset tournament
           </button>
         </>
