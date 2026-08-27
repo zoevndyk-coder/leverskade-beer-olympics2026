@@ -212,7 +212,7 @@ const medalStyles = [
 
 export default function BeerOlympicsTracker() {
   const [state, setState] = useState(null);
-  const [tab, setTab] = useState("leaderboard");
+  const [tab, setTab] = useState("info");
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [offline, setOffline] = useState(false);
@@ -308,7 +308,7 @@ export default function BeerOlympicsTracker() {
       {tab === "log" && <LogWin state={state} dispatch={dispatch} />}
       {tab === "beerpong" && <BeerPong state={state} dispatch={dispatch} />}
       {tab === "roster" && <Roster state={state} dispatch={dispatch} />}
-      {tab === "info" && <Info state={state} />}
+      {tab === "info" && <Info state={state} setTab={setTab} />}
     </Shell>
   );
 }
@@ -1119,7 +1119,7 @@ function Roster({ state, dispatch }) {
   );
 }
 
-function Info({ state }) {
+function Info({ state, setTab }) {
   const target = state.tournament?.groupRounds ?? 3;
   const teamCount = state.teams.length;
   const koSize = teamCount >= 8 ? 8 : teamCount >= 4 ? 4 : 2;
@@ -1305,6 +1305,23 @@ function Info({ state }) {
           <Rule>18+ only. Look after each other and have fun.</Rule>
         </ul>
       </InfoCard>
+
+      <div className="grid grid-cols-2 gap-2 pt-1">
+        <button
+          onClick={() => setTab("log")}
+          style={{ background: BRAND.green }}
+          className="rounded-xl py-3 text-[13.5px] font-bold text-white flex items-center justify-center gap-1.5"
+        >
+          <Target size={16} /> Log a win
+        </button>
+        <button
+          onClick={() => setTab("leaderboard")}
+          style={{ background: "#fff", color: BRAND.greenDark, border: `1.5px solid ${BRAND.mint}` }}
+          className="rounded-xl py-3 text-[13.5px] font-bold flex items-center justify-center gap-1.5"
+        >
+          <Trophy size={16} /> Scoreboard
+        </button>
+      </div>
 
       <p className="text-center text-[11.5px] text-[#a9b0a3] pt-1">
         🏕 Leverskade · 3–6 September 2026
