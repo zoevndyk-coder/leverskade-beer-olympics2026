@@ -676,6 +676,7 @@ function BeerPong({ state, dispatch }) {
   const [teamName, setTeamName] = useState("");
   const [p1, setP1] = useState("");
   const [p2, setP2] = useState("");
+  const [p3, setP3] = useState("");
   const [wantRounds, setWantRounds] = useState(3);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -698,16 +699,28 @@ function BeerPong({ state, dispatch }) {
   const nameOf = (id) =>
     id ? state.teams.find((t) => t.id === id)?.name || "—" : "TBD";
 
+  // Anyone already on a team, so they can't be picked twice.
+  const takenNames = new Set(state.teams.flatMap((t) => t.playerNames));
+  const unassigned = state.participants.filter((p) => !takenNames.has(p.name));
+
   const addTeam = () => {
     if (!p1) return;
-    const players = [p1, p2].filter(Boolean);
+    const players = [...new Set([p1, p2, p3].filter(Boolean))];
     dispatch({
       type: "addTeam",
       name: teamName.trim() || players.join(" & "),
       playerNames: players,
     });
-    setTeamName(""); setP1(""); setP2("");
+    setTeamName(""); setP1(""); setP2(""); setP3("");
   };
+
+  // Players still free to pick, excluding the ones chosen in the other slots.
+  const optionsFor = (current, ...others) =>
+    state.participants.filter(
+      (p) =>
+        p.name === current ||
+        (!takenNames.has(p.name) && !others.includes(p.name))
+    );
 
   const Match = ({ m, dim }) => {
     if (m.isBye) {
@@ -763,11 +776,25 @@ function BeerPong({ state, dispatch }) {
       <div className="space-y-5">
         <Card style={{ background: `${BRAND.orange}14` }}>
           <p className="text-[12.5px] leading-snug" style={{ color: BRAND.orangeDark }}>
-            🍺 Add your 2-person teams, then pick how many group rounds to play.
-            Everyone plays every round, winners get matched with winners, and the
-            best teams go through to a knockout.
+            🍺 Teams are normally 2 people. If the numbers don't divide evenly,
+            make a team of 3 — just fill in the third slot. Then pick how many
+            group rounds to play.
           </p>
         </Card>
+
+        {unassigned.length > 0 && (
+          <Card style={{ background: "#f7f9f5" }}>
+            <div className="text-[12.5px]" style={{ color: BRAND.greenDark }}>
+              <span className="font-semibold">Not on a team yet ({unassigned.length}):</span>{" "}
+              {unassigned.map((p) => p.name).join(", ")}
+            </div>
+            {unassigned.length % 2 === 1 && (
+              <div className="text-[11.5px] mt-1.5" style={{ color: BRAND.orangeDark }}>
+                That's an odd number — make one team of 3 to even it out.
+              </div>
+            )}
+          </Card>
+        )}
 
         <div>
           <SectionTitle icon={UserPlus}>Add a Team</SectionTitle>
@@ -785,15 +812,21 @@ function BeerPong({ state, dispatch }) {
                   style={{ border: `1.5px solid ${BRAND.mint}` }}
                   className="rounded-lg px-2 py-2 text-[13px] bg-white">
                   <option value="">Player 1</option>
-                  {state.participants.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+                  {optionsFor(p1, p2, p3).map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
                 </select>
                 <select value={p2} onChange={(e) => setP2(e.target.value)}
                   style={{ border: `1.5px solid ${BRAND.mint}` }}
                   className="rounded-lg px-2 py-2 text-[13px] bg-white">
                   <option value="">Player 2</option>
-                  {state.participants.map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+                  {optionsFor(p2, p1, p3).map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
                 </select>
               </div>
+              <select value={p3} onChange={(e) => setP3(e.target.value)}
+                style={{ border: `1.5px solid ${BRAND.mint}` }}
+                className="w-full rounded-lg px-2 py-2 text-[13px] bg-white">
+                <option value="">Player 3 — optional, for a team of three</option>
+                {optionsFor(p3, p1, p2).map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+              </select>
               <button onClick={addTeam} disabled={!p1}
                 style={{ background: p1 ? BRAND.orange : "#eee", color: p1 ? "#fff" : "#aaa" }}
                 className="w-full rounded-lg py-2 text-[13px] font-bold flex items-center justify-center gap-1.5">
@@ -812,7 +845,15 @@ function BeerPong({ state, dispatch }) {
                   <div className="flex items-center justify-between">
                     <div className="min-w-0">
                       <div style={{ fontFamily: "'Baloo 2', sans-serif" }} className="text-[13.5px] font-bold truncate">{t.name}</div>
-                      <div className="text-[11.5px] text-[#8a9186] truncate">{t.playerNames.join(" & ")}</div>
+                      <div className="text-[11.5px] text-[#8a9186] truncate">
+                        {t.playerNames.join(" & ")}
+                        {t.playerNames.length === 3 && (
+                          <span style={{ background: BRAND.orange + "33", color: BRAND.orangeDark }}
+                            className="ml-1.5 text-[9.5px] font-bold rounded-full px-1.5 py-0.5">
+                            TRIO
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <button onClick={() => dispatch({ type: "removeTeam", id: t.id })} className="flex-none ml-2">
                       <X size={15} className="text-[#c2c8bd]" />
@@ -1208,8 +1249,9 @@ function Info({ state }) {
       <InfoCard icon={Beer} title="Beer Pong Format" accent={BRAND.orangeDark}>
         <ul className="m-0 p-0 list-none">
           <Rule>
-            Pick your own <b>2-person teams</b>. Add them in the Beer Pong tab
-            before the tournament starts.
+            Pick your own teams — normally <b>2 people</b>, but if the numbers
+            don't divide evenly you can make a <b>team of 3</b>. Add them in the
+            Beer Pong tab before the tournament starts.
           </Rule>
           <Rule>
             <b>Group stage:</b> {target} rounds. The whole round is drawn at
