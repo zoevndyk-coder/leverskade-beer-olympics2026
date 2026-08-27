@@ -13,6 +13,8 @@ import {
   UserPlus,
   Crown,
   Loader2,
+  BookOpen,
+  Medal,
 } from "lucide-react";
 
 const STORAGE_KEY = "leverskade-beer-olympics-v1";
@@ -298,6 +300,7 @@ export default function BeerOlympicsTracker() {
       {tab === "log" && <LogWin state={state} dispatch={dispatch} />}
       {tab === "beerpong" && <BeerPong state={state} dispatch={dispatch} />}
       {tab === "roster" && <Roster state={state} dispatch={dispatch} />}
+      {tab === "info" && <Info state={state} />}
     </Shell>
   );
 }
@@ -316,8 +319,9 @@ function Shell({ tab, setTab, syncing, offline, children }) {
   const tabs = [
     { id: "leaderboard", label: "Board", icon: Trophy },
     { id: "log", label: "Log Win", icon: Target },
-    { id: "beerpong", label: "Beer Pong", icon: Beer },
+    { id: "beerpong", label: "Pong", icon: Beer },
     { id: "roster", label: "Roster", icon: Users },
+    { id: "info", label: "Rules", icon: BookOpen },
   ];
   return (
     <div style={{ background: BRAND.cream, fontFamily: "'Space Grotesk', sans-serif" }} className="min-h-screen text-[#233020] pb-24">
@@ -375,13 +379,13 @@ function Shell({ tab, setTab, syncing, offline, children }) {
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className="flex-1 flex flex-col items-center gap-1 py-2.5"
+              className="flex-1 min-w-0 flex flex-col items-center gap-1 py-2.5 px-0.5"
               style={{ color: active ? BRAND.green : "#9aa39a" }}
             >
-              <Icon size={20} strokeWidth={active ? 2.4 : 2} />
+              <Icon size={19} strokeWidth={active ? 2.4 : 2} />
               <span
                 style={{ fontFamily: "'Baloo 2', sans-serif" }}
-                className="text-[10px] font-bold tracking-wide"
+                className="text-[9.5px] font-bold tracking-tight whitespace-nowrap"
               >
                 {t.label}
               </span>
@@ -1036,6 +1040,199 @@ function Roster({ state, dispatch }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function Info({ state }) {
+  const target = state.tournament?.groupGames ?? 3;
+  const teamCount = state.teams.length;
+  const koSize = teamCount >= 8 ? 8 : teamCount >= 4 ? 4 : 2;
+
+  const InfoCard = ({ icon: Icon, title, accent, children }) => (
+    <div>
+      <div className="flex items-center gap-2 mb-3">
+        {Icon && <Icon size={17} style={{ color: accent || BRAND.green }} />}
+        <h2
+          style={{ fontFamily: "'Baloo 2', sans-serif", color: accent || BRAND.greenDark }}
+          className="text-[15px] font-bold tracking-wide"
+        >
+          {title}
+        </h2>
+      </div>
+      <Card>{children}</Card>
+    </div>
+  );
+
+  const Rule = ({ children }) => (
+    <li className="flex gap-2.5 text-[13px] leading-relaxed mb-2 last:mb-0">
+      <span style={{ color: BRAND.green }} className="flex-none font-bold">
+        •
+      </span>
+      <span>{children}</span>
+    </li>
+  );
+
+  return (
+    <div className="space-y-5">
+      <Card
+        style={{
+          background: `linear-gradient(135deg, ${BRAND.green}, ${BRAND.greenDark})`,
+          border: "none",
+        }}
+      >
+        <div className="text-center py-1">
+          <div
+            style={{ fontFamily: "'Baloo 2', sans-serif" }}
+            className="text-white text-[19px] font-extrabold"
+          >
+            🍺 Beer Olympics
+          </div>
+          <div className="text-white/85 text-[12.5px] mt-1">
+            Friday 4 September · from 15:30
+          </div>
+          <div className="text-white/85 text-[12.5px]">
+            Winners announced at 21:00
+          </div>
+        </div>
+      </Card>
+
+      <InfoCard icon={Target} title="How Scoring Works">
+        <ul className="m-0 p-0 list-none">
+          <Rule>
+            Every game you win is worth <b>1 point</b>. That's it — no bonus
+            points, no partial scores.
+          </Rule>
+          <Rule>
+            Play as many games as you like, as often as you like. More games
+            played means more chances to score.
+          </Rule>
+          <Rule>
+            Anyone can log a win in the <b>Log Win</b> tab — tap <b>+</b> next to
+            the winner's name. Tapped by mistake? Tap <b>−</b> to undo it.
+          </Rule>
+          <Rule>
+            Beer Pong is scored <b>separately</b> and does not count toward your
+            overall points.
+          </Rule>
+        </ul>
+      </InfoCard>
+
+      <InfoCard icon={Beer} title="The Games">
+        <div className="flex flex-wrap gap-1.5">
+          {state.games.map((g) => (
+            <span
+              key={g}
+              style={{ background: BRAND.mint, color: BRAND.greenDark }}
+              className="text-[12px] font-semibold rounded-full px-2.5 py-1"
+            >
+              {g}
+            </span>
+          ))}
+        </div>
+        <p className="text-[12.5px] text-[#6a7166] mt-3 mb-0">
+          BYOD — bring your own drink. Alcohol-free works just as well; the
+          games are the point, not the beer.
+        </p>
+      </InfoCard>
+
+      <InfoCard icon={Medal} title="Prizes" accent={BRAND.orangeDark}>
+        <div className="space-y-3">
+          <div>
+            <div
+              style={{ fontFamily: "'Baloo 2', sans-serif", color: BRAND.orangeDark }}
+              className="text-[13.5px] font-bold"
+            >
+              🏆 Overall Champion
+            </div>
+            <div className="text-[12.5px] text-[#4a4740]">
+              Most points across all games combined.
+            </div>
+          </div>
+          <div>
+            <div
+              style={{ fontFamily: "'Baloo 2', sans-serif", color: BRAND.orangeDark }}
+              className="text-[13.5px] font-bold"
+            >
+              ⚡ Best Sprinter
+            </div>
+            <div className="text-[12.5px] text-[#4a4740]">
+              Highest score in a single game — the specialist's award.
+            </div>
+          </div>
+          <div>
+            <div
+              style={{ fontFamily: "'Baloo 2', sans-serif", color: BRAND.orangeDark }}
+              className="text-[13.5px] font-bold"
+            >
+              🎯 Trick Shot Champion
+            </div>
+            <div className="text-[12.5px] text-[#4a4740]">
+              Most Trick Shot wins.
+            </div>
+          </div>
+          <div>
+            <div
+              style={{ fontFamily: "'Baloo 2', sans-serif", color: BRAND.orangeDark }}
+              className="text-[13.5px] font-bold"
+            >
+              🍺 Beer Pong Champions
+            </div>
+            <div className="text-[12.5px] text-[#4a4740]">
+              The team that wins the Beer Pong tournament.
+            </div>
+          </div>
+        </div>
+      </InfoCard>
+
+      <InfoCard icon={Beer} title="Beer Pong Format" accent={BRAND.orangeDark}>
+        <ul className="m-0 p-0 list-none">
+          <Rule>
+            Pick your own <b>2-person teams</b>. Add them in the Beer Pong tab
+            before the tournament starts.
+          </Rule>
+          <Rule>
+            <b>Group stage:</b> everyone plays {target} games. Matches run
+            continuously — as soon as two teams finish, they're paired up again,
+            so there's no standing around waiting for a round to end.
+          </Rule>
+          <Rule>
+            Pairings are based on record, so winners face winners and everyone
+            gets opponents at their level. You won't be matched against the same
+            team twice if it can be avoided.
+          </Rule>
+          <Rule>
+            <b>Knockout:</b> the top {koSize} teams go through, seeded so the
+            best team faces the weakest qualifier. Lose and you're out — down to
+            the final.
+          </Rule>
+          <Rule>
+            Tap the winning team's name to record a result. Got it wrong? Just
+            tap the other team to correct it.
+          </Rule>
+        </ul>
+      </InfoCard>
+
+      <InfoCard icon={Users} title="House Rules">
+        <ul className="m-0 p-0 list-none">
+          <Rule>Log your wins honestly — the whole thing runs on trust.</Rule>
+          <Rule>
+            Everyone sees the same live scoreboard. Anything you log shows up on
+            everyone else's phone within a few seconds.
+          </Rule>
+          <Rule>
+            Missing from the roster? Add yourself in the <b>Roster</b> tab.
+          </Rule>
+          <Rule>
+            Drink water between games. Alcohol-free options are always fine.
+          </Rule>
+          <Rule>18+ only. Look after each other and have fun.</Rule>
+        </ul>
+      </InfoCard>
+
+      <p className="text-center text-[11.5px] text-[#a9b0a3] pt-1">
+        🏕 Leverskade · 3–6 September 2026
+      </p>
     </div>
   );
 }
