@@ -1227,7 +1227,127 @@ function Roster({ state, dispatch }) {
   );
 }
 
+
+// Short, practical rules for each game. Where a game has lots of regional
+// variants, the common version is given — settle disputes on the night.
+const GAME_RULES = {
+  "Flip Cup": {
+    players: "Two teams, equal numbers",
+    how: [
+      "Teams line up facing each other along the table, each player with a filled cup.",
+      "First player drinks their cup, sets it upright at the table edge, then flips it with a fingertip until it lands face down.",
+      "Only once it lands face down may the next teammate start.",
+      "First team with every cup flipped takes the round.",
+      "Play three rounds — the team that wins two of them takes it.",
+    ],
+    finish: "Winner: the team that takes 2 of the 3 rounds. Everyone on that team logs 1 point.",
+  },
+  "Rage Cage": {
+    players: "Everyone, standing in a circle",
+    how: [
+      "Cups of drink form a circle on the table with one cup in the middle.",
+      "Two players opposite each other start, each with a ball and a cup.",
+      "Bounce your ball into your cup. Once you sink it, pass the cup to the player on your left and the ball carries on round.",
+      "If you sink yours before the player to your right, stack your cup inside theirs — they now have to catch up.",
+      "First person to sink the middle cup claims it; whoever is left holding the stack loses that round and drops out.",
+      "Re-set and keep playing rounds, one player out each time.",
+      "Last player standing wins the whole game.",
+    ],
+    finish: "Winner: the last player left in. That player logs 1 point — nobody else scores.",
+  },
+  "Flunkyball": {
+    players: "Two teams, facing off",
+    how: [
+      "Teams stand facing each other about 6–8 m apart, each player with a drink in front of them.",
+      "One bottle (the flunky) stands in the middle.",
+      "Teams take turns throwing a ball to knock over the middle bottle.",
+      "The moment it falls, the throwing team starts drinking — while the other team fetches the ball, stands the bottle back up and shouts STOP.",
+      "Everyone stops drinking on STOP. First team to finish all their drinks wins.",
+    ],
+    finish: "Winner: the team that empties all their drinks first. Everyone on that team logs 1 point.",
+  },
+  "Cornhole": {
+    players: "2 or 4 players",
+    how: [
+      "Boards face each other roughly 8 m apart. Each side has 4 bags.",
+      "Players alternate throws until all bags are thrown.",
+      "Bag through the hole = 3 points. Bag resting on the board = 1 point.",
+      "Scores cancel out: only the difference between the two sides counts each round.",
+      "First to exactly 21 wins — go over and your score drops back.",
+    ],
+    finish: "Winner: the first side to land exactly 21. Everyone on that side logs 1 point.",
+  },
+  "Kubb": {
+    players: "Two teams",
+    how: [
+      "Each team has five kubbs (wooden blocks) along their baseline and the king stands in the centre.",
+      "Throw batons underarm, end over end, to knock over the opponent's kubbs.",
+      "Any kubb you knock down gets thrown into the opponent's half and stood up — those must be cleared first on their next turn.",
+      "Once every kubb is down, knock over the king to win.",
+      "Hit the king too early and you lose the game instantly.",
+    ],
+    finish: "Winner: the team that fells the king. Everyone on that team logs 1 point.",
+  },
+  "Frisbee": {
+    players: "Two teams of two",
+    how: [
+      "Buckets are set about 10 m apart. You stand behind one bucket next to your opponent; your teammate stands at the far bucket.",
+      "The thrower must stay behind their bucket. The teammate at the other end can move wherever they like.",
+      "Teammate leaves it and the frisbee hits the bucket clean: 2 points.",
+      "Teammate deflects it onto the bucket: 1 point.",
+      "Teammate slam dunks it into the top: 3 points.",
+      "Missed completely or it hits the ground: nothing.",
+      "Throw it straight through the slit and you win on the spot.",
+      "Otherwise race to exactly 21 — overshoot and the extra comes back off your score.",
+    ],
+    finish: "Winner: the team that hits exactly 21, or throws it through the slit. Both players log 1 point.",
+  },
+  "Tug of War": {
+    players: "Two teams",
+    how: [
+      "Teams take either end of the rope with a marker tied at the centre.",
+      "On the call, pull. Win the round by dragging the centre marker past your side's line.",
+      "No sitting down, no wrapping the rope around hands or body.",
+      "Play three rounds — the team that wins two of them takes it.",
+    ],
+    finish: "Winner: the team that takes 2 of the 3 pulls. Everyone on that team logs 1 point.",
+  },
+  Darts: {
+    players: "Individual or pairs",
+    how: [
+      "Standard 501: everyone starts on 501 points.",
+      "Three darts per turn; the total is subtracted from your score.",
+      "You must land exactly on zero to win, finishing on a double.",
+      "Bust (going below zero or landing on 1) and the turn doesn't count.",
+    ],
+    finish: "Winner: the first to check out on a double. That player logs 1 point (in pairs, both partners do).",
+  },
+  "Pétanque": {
+    players: "Singles, doubles or triples",
+    how: [
+      "Throw the small jack 6–10 m from the throwing circle.",
+      "Take turns throwing boules, aiming to land closest to the jack.",
+      "The team not holding the closest boule keeps throwing until they take the lead or run out.",
+      "You score one point for every boule closer to the jack than the opponent's best.",
+      "First to 13 wins.",
+    ],
+    finish: "Winner: the first team to 13. Everyone on that team logs 1 point.",
+  },
+  "Trick Shots": {
+    players: "Individual",
+    how: [
+      "Attempt a creative shot into a cup — bounce, behind the back, off a chair, over the shoulder.",
+      "It has to be witnessed by someone else to count.",
+      "Each landed shot is one win — log it and try another.",
+      "Repeating the exact same shot doesn't count twice; keep them different.",
+      "Trick shots earned at the Beer Pong table count too — log them here.",
+    ],
+    finish: "Every different shot you land is a win — log 1 point for each one.",
+  },
+};
+
 function Info({ state, setTab }) {
+  const [openGame, setOpenGame] = useState(null);
   const target = state.tournament?.groupRounds ?? 3;
   const teamCount = state.teams.length;
   const koSize = teamCount >= 8 ? 8 : teamCount >= 4 ? 4 : 2;
@@ -1283,12 +1403,21 @@ function Info({ state, setTab }) {
       <InfoCard icon={Target} title="How Scoring Works">
         <ul className="m-0 p-0 list-none">
           <Rule>
-            Every game you win is worth <b>1 point</b>. That's it — no bonus
-            points, no partial scores.
+            A win is worth <b>1 point</b>. No bonus points, no partial scores.
           </Rule>
           <Rule>
-            Play as many games as you like, as often as you like. More games
-            played means more chances to score.
+            In team games <b>everyone on the winning team gets a point</b> — not
+            one point split between you. Win Tug of War as a six and all six of
+            you log a point.
+          </Rule>
+          <Rule>
+            Most games are one point for the win. Flip Cup and Tug of War are
+            played <b>best of 3</b> — you score once for taking the match, not
+            once per round.
+          </Rule>
+          <Rule>
+            Play as much as you like, in any order. Tap a game above to see
+            exactly when a point is scored in it.
           </Rule>
           <Rule>
             Anyone can log a win in the <b>Log Win</b> tab — tap <b>+</b> next to
@@ -1302,17 +1431,68 @@ function Info({ state, setTab }) {
       </InfoCard>
 
       <InfoCard icon={Beer} title="The Games">
+        <p className="text-[12px] text-[#6a7166] mt-0 mb-2.5">
+          Tap a game to see how it's played.
+        </p>
         <div className="flex flex-wrap gap-1.5">
-          {state.games.map((g) => (
-            <span
-              key={g}
-              style={{ background: BRAND.mint, color: BRAND.greenDark }}
-              className="text-[12px] font-semibold rounded-full px-2.5 py-1"
-            >
-              {g}
-            </span>
-          ))}
+          {state.games.map((g) => {
+            const open = openGame === g;
+            return (
+              <button
+                key={g}
+                onClick={() => setOpenGame(open ? null : g)}
+                style={{
+                  background: open ? BRAND.green : BRAND.mint,
+                  color: open ? "#fff" : BRAND.greenDark,
+                }}
+                className="text-[12px] font-semibold rounded-full px-2.5 py-1"
+              >
+                {g}
+              </button>
+            );
+          })}
         </div>
+
+        {openGame && GAME_RULES[openGame] && (
+          <div
+            style={{ background: "#f4f8f2", borderLeft: `2mm solid ${BRAND.green}` }}
+            className="rounded-lg mt-3 px-3 py-2.5"
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <div
+                style={{ fontFamily: "'Baloo 2', sans-serif", color: BRAND.greenDark }}
+                className="text-[14px] font-bold"
+              >
+                {openGame}
+              </div>
+              <button
+                onClick={() => setOpenGame(null)}
+                className="text-[11px] font-semibold flex-none"
+                style={{ color: "#8a9186" }}
+              >
+                close
+              </button>
+            </div>
+            <div className="text-[11.5px] text-[#6a7166] mb-1.5">
+              {GAME_RULES[openGame].players}
+            </div>
+
+            <ol className="m-0 pl-4 text-[12.5px] leading-relaxed">
+              {GAME_RULES[openGame].how.map((line, i) => (
+                <li key={i} className="mb-1 last:mb-0">{line}</li>
+              ))}
+            </ol>
+            {GAME_RULES[openGame].finish && (
+              <div
+                style={{ background: BRAND.green, color: "#fff" }}
+                className="rounded-md px-2.5 py-2 mt-2.5 text-[12px] font-semibold leading-snug"
+              >
+                🏆 {GAME_RULES[openGame].finish}
+              </div>
+            )}
+          </div>
+        )}
+
         <p className="text-[12.5px] text-[#6a7166] mt-3 mb-0">
           BYOD — bring your own drink. Alcohol-free works just as well; the
           games are the point, not the beer.
@@ -1351,7 +1531,8 @@ function Info({ state, setTab }) {
               🎯 Trick Shot Champion
             </div>
             <div className="text-[12.5px] text-[#4a4740]">
-              Most Trick Shot wins.
+              Most Trick Shot wins — including ones earned at the Beer Pong
+              table.
             </div>
           </div>
           <div>
@@ -1393,6 +1574,37 @@ function Info({ state, setTab }) {
           <Rule>
             Tap the winning team's name to record a result. Got it wrong? Just
             tap the other team to correct it.
+          </Rule>
+        </ul>
+      </InfoCard>
+
+      <InfoCard icon={Beer} title="Beer Pong — Table Rules" accent={BRAND.orangeDark}>
+        <ul className="m-0 p-0 list-none">
+          <Rule>
+            <b>Blowing out:</b> if the ball is spinning in the cup and hasn't
+            settled into the drink yet, you can blow it back out.
+          </Rule>
+          <Rule>
+            <b>Bounces:</b> once the ball bounces on the table it's fair game —
+            slap it away.
+          </Rule>
+          <Rule>
+            <b>Balls back:</b> if both throwers hit (or 2 of 3 in a trio), your
+            team gets the balls back for another go.
+          </Rule>
+          <Rule>
+            <b>Same cup twice:</b> both of you sink the same cup and it's worth{" "}
+            <b>3 cups</b>.
+          </Rule>
+          <Rule>
+            <b>Double airball:</b> if both of you miss so badly you don't even
+            touch a cup, you remove one of your <b>own</b> cups.
+          </Rule>
+          <Rule>
+            <b>Trick shot chance:</b> throw a ball that rolls back to your side
+            and catch it before the other team — that earns you a trick shot
+            attempt. Land it and it counts towards <b>Trick Shot Champion</b>,
+            so log it under Trick Shots.
           </Rule>
         </ul>
       </InfoCard>
