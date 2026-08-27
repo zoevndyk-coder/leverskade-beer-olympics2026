@@ -21,7 +21,7 @@ const STORAGE_KEY = "leverskade-beer-olympics-v1";
 
 const DEFAULT_GAMES = [
   "Flip Cup",
-  "Rage Cage",
+  "Rage Cage Battle",
   "Flunkyball",
   "Cornhole",
   "Kubb",
@@ -1243,7 +1243,7 @@ const GAME_RULES = {
     ],
     finish: "Winner: the team that takes 2 of the 3 rounds. Everyone on that team logs 1 point.",
   },
-  "Rage Cage": {
+  "Rage Cage Battle": {
     players: "Everyone, standing in a circle",
     min: "Minimum 7 players · 19 cups minimum on the table",
     how: [
@@ -1257,7 +1257,7 @@ const GAME_RULES = {
       "If you get stacked, pass that tower of cups on to your left, take a fresh cup from the middle, drink it, and carry on playing with that one.",
       "You lose the round if there's only one cup left in the middle and you're the one who has to drink it — you're out.",
       "Re-set and play again without them, losing one player each round.",
-      "Keep going until four players are left — then it's the Rage Cage Battle: all four go ad fundum at the same time.",
+      "Keep going until four players are left — then the battle finishes with all four going ad fundum at the same time.",
     ],
     finish: "Winner: the fastest of the final four ad fundum. That player logs 1 point — nobody else scores.",
   },
