@@ -24,6 +24,29 @@ function makeId(prefix) {
   return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 }
 
+// Scores are keyed by game name, so a rename would orphan them. Move any
+// scores stored under an old name across to the new one.
+const RENAMED_GAMES = {
+  "Rage Cage": "Rage Cage Battle",
+};
+
+function migrateGameNames(state) {
+  const scores = { ...state.scores };
+  let touched = false;
+  for (const pid of Object.keys(scores)) {
+    const row = { ...scores[pid] };
+    for (const [oldName, newName] of Object.entries(RENAMED_GAMES)) {
+      if (row[oldName] !== undefined) {
+        row[newName] = (row[newName] || 0) + row[oldName];
+        delete row[oldName];
+        touched = true;
+      }
+    }
+    scores[pid] = row;
+  }
+  return touched ? { ...state, scores } : state;
+}
+
 function defaultState() {
   return {
     participants: DEFAULT_NAMES.map((name, i) => ({
@@ -425,11 +448,17 @@ export default async (req) => {
     const readState = async () => {
       const raw = await store.get(KEY, { consistency: "strong" });
       if (!raw) return defaultState();
+      let saved;
       try {
-        return { ...defaultState(), ...JSON.parse(raw) };
+        saved = JSON.parse(raw);
       } catch (e) {
         return defaultState();
       }
+      const state = { ...defaultState(), ...saved };
+      // The game list always comes from the code, never from saved data —
+      // otherwise renaming a game leaves the old name stuck in the database.
+      state.games = DEFAULT_GAMES;
+      return migrateGameNames(state);
     };
 
     if (req.method === "GET") {
