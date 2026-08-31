@@ -25,9 +25,8 @@ const DAYS = [
       },
       {
         time: "18:00",
-        title: "BBQ — bring your own food!",
-        body: "We provide the BBQs, the charcoal and the fire, and someone will help you cook. You bring your own meat, veggies and drinks — food is NOT provided.",
-        warn: "⚠️ Nobody is cooking for you and there's no shared food. Turn up with your own dinner or you'll be watching everyone else eat.",
+        title: "BBQ — BYOM (bring your own meat/veggies!)",
+        body: "We'll have the BBQ fired up and someone there to help you grill. Coal and sauces are provided — the ingredients are on you. Bring your own meat, fish, veggies and drinks, whatever you fancy. 🌭",
         accent: true,
       },
       {

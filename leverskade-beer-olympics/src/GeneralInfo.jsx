@@ -168,32 +168,30 @@ export default function GeneralInfo({ go }) {
                 "Your Leverskade shirt (plus extra merch if you ordered it) — handed out on location",
                 "Camping stay for the full weekend",
                 "The basics: coal for the BBQ, firewood, sauces, herbs, some cups and toilet paper",
-                "Drinks for the beer olympics",
+                "Some startup beer for the beer olympics (bring your own drinks if you want more!)",
                 <>
                   Cantus beer — <em>only if you chose the cantus beer option when signing up</em>
                 </>,
               ]}
             />
           </Panel>
+          <Panel tone="orange" title="🔥 Thursday BBQ — BYOM (bring your own meat/veggies!)">
+            <p className="text-[13.5px] leading-relaxed m-0">
+              We'll have the BBQ fired up and ready to go on Thursday evening and someone will be
+              there to help you grill — but the food is on you. Bring your own meat, fish, veggies,
+              whatever you fancy. The coal and sauces are provided, the ingredients are not. Don't
+              show up empty handed and expect a sausage! 🌭
+            </p>
+          </Panel>
           <Panel tone="red" title="❌ Not included — bring your own!">
             <Bullets
               items={[
-                "Your own drinks for the whole weekend. If you didn't pick the cantus beer option, bring plenty — we do a lot of bottoms up at the Cantus!",
-                "Your own food, cutlery, plates and cup",
+                "Your own food and drinks for the whole weekend — including Thursday BBQ ingredients",
+                "If you didn't pick the cantus beer option, bring plenty of drinks for Saturday — we do a lot of bottoms up at the Cantus!",
+                "Your own cutlery, plates and cup",
                 "Everything else not listed above",
               ]}
             />
-            <p className="text-[12.5px] text-[#6a7166] mt-2 mb-0">
-              There will be a BBQ and a gas cooker available to use.
-            </p>
-          </Panel>
-          <Panel tone="orange" title="🔥 Thursday BBQ — bring your own food!">
-            <p className="text-[13.5px] leading-relaxed m-0">
-              This one catches people out every year. We have the BBQs going with charcoal and fire
-              provided, and someone will happily help you cook — but{" "}
-              <b>everyone brings their own meat, veggies and drinks</b>. No food is provided and
-              there's nothing shared to grab from.
-            </p>
           </Panel>
         </Card>
       </div>
@@ -208,9 +206,9 @@ export default function GeneralInfo({ go }) {
               expenses, full stop.
             </p>
           </Panel>
-          <Panel tone="orange" title="👑 Yoyo (Zoë) is financially responsible">
+          <Panel tone="orange" title="📊 Yoyo (Zoë) is the finance coordinator">
             <p className="text-[13.5px] leading-relaxed m-0">
-              On behalf of the organisation, Yoyo handles all finances. No shared supplies or common
+              On behalf of the organisation, Yoyo coordinates all finances. No shared supplies or common
               goods are purchased for the group unless agreed with her in advance.
             </p>
           </Panel>
