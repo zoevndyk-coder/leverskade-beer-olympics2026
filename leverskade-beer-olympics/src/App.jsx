@@ -1036,9 +1036,14 @@ function BeerPong({ state, dispatch }) {
   const [p3, setP3] = useState("");
   const [wantRounds, setWantRounds] = useState(3);
   const [showHistory, setShowHistory] = useState(false);
+  const [showTeams, setShowTeams] = useState(false);
 
   const tourn = state.tournament;
-  const started = !!tourn;
+  // A tournament only counts as running if it actually has matches. Guards
+  // against a half-written record leaving the tab stuck on an empty knockout.
+  const started =
+    !!tourn &&
+    ((tourn.rounds?.length ?? 0) > 0 || (tourn.knockout?.rounds?.length ?? 0) > 0);
   const phase = tourn?.phase;
   const target = tourn?.groupRounds ?? 3;
 
@@ -1079,6 +1084,159 @@ function BeerPong({ state, dispatch }) {
         p.name === current ||
         (!takenNames.has(p.name) && !others.includes(p.name))
     );
+
+  /* ---------- setup: add teams, pick rounds, start ---------- */
+  if (!started) {
+    return (
+      <div className="space-y-5">
+        <Card style={{ background: `${BRAND.orange}14` }}>
+          <p className="text-[12.5px] leading-snug" style={{ color: BRAND.orangeDark }}>
+            🍺 Add your teams, then pick how many group rounds to play. Everyone plays every round,
+            winners get matched with winners, and the best teams go through to a knockout.
+          </p>
+        </Card>
+
+        <div>
+          <SectionTitle icon={UserPlus}>Add a Team</SectionTitle>
+          <Card>
+            <div className="space-y-2">
+              <input
+                value={teamName}
+                onChange={(e) => setTeamName(e.target.value)}
+                placeholder="Team name (optional)"
+                style={{ border: `1.5px solid ${BRAND.mint}` }}
+                className="w-full rounded-lg px-3 py-2 text-[13.5px] outline-none"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <select value={p1} onChange={(e) => setP1(e.target.value)}
+                  style={{ border: `1.5px solid ${BRAND.mint}` }}
+                  className="rounded-lg px-2 py-2 text-[13px] bg-white">
+                  <option value="">Player 1</option>
+                  {optionsFor(p1, p2, p3).map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+                </select>
+                <select value={p2} onChange={(e) => setP2(e.target.value)}
+                  style={{ border: `1.5px solid ${BRAND.mint}` }}
+                  className="rounded-lg px-2 py-2 text-[13px] bg-white">
+                  <option value="">Player 2</option>
+                  {optionsFor(p2, p1, p3).map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+                </select>
+              </div>
+              <select value={p3} onChange={(e) => setP3(e.target.value)}
+                style={{ border: `1.5px solid ${BRAND.mint}` }}
+                className="w-full rounded-lg px-2 py-2 text-[13px] bg-white">
+                <option value="">Player 3 — optional, for a team of three</option>
+                {optionsFor(p3, p1, p2).map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+              </select>
+              <button onClick={addTeam} disabled={!p1}
+                style={{ background: p1 ? BRAND.orange : "#eee", color: p1 ? "#fff" : "#aaa" }}
+                className="w-full rounded-lg py-2 text-[13px] font-bold flex items-center justify-center gap-1.5">
+                <Plus size={15} /> Add Team
+              </button>
+            </div>
+          </Card>
+        </div>
+
+        {unassigned.length > 0 && (
+          <Card style={{ background: "#f7f9f5" }}>
+            <div className="text-[12.5px]" style={{ color: BRAND.greenDark }}>
+              <span className="font-semibold">Not on a team yet ({unassigned.length}):</span>{" "}
+              {unassigned.map((p) => p.name).join(", ")}
+            </div>
+            {unassigned.length % 2 === 1 && (
+              <div className="text-[11.5px] mt-1.5" style={{ color: BRAND.orangeDark }}>
+                That's an odd number — make one team of 3 to even it out.
+              </div>
+            )}
+          </Card>
+        )}
+
+        {state.teams.length > 0 && (
+          <div>
+            <SectionTitle icon={Users}>Teams ({state.teams.length})</SectionTitle>
+            <div className="space-y-2">
+              {state.teams.map((t) => (
+                <Card key={t.id}>
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0">
+                      <div style={{ fontFamily: "'Baloo 2', sans-serif" }} className="text-[13.5px] font-bold truncate">
+                        {t.name}
+                      </div>
+                      <div className="text-[11.5px] text-[#8a9186] truncate">
+                        {t.playerNames.join(" & ")}
+                        {t.playerNames.length === 3 && (
+                          <span style={{ background: BRAND.orange + "33", color: BRAND.orangeDark }}
+                            className="ml-1.5 text-[9.5px] font-bold rounded-full px-1.5 py-0.5">
+                            TRIO
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <button onClick={() => dispatch({ type: "removeTeam", id: t.id })} className="flex-none ml-2">
+                      <X size={15} className="text-[#c2c8bd]" />
+                    </button>
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {state.teams.length >= 2 && (
+          <>
+            <Card>
+              <div className="text-[12.5px] font-semibold mb-2" style={{ color: BRAND.greenDark }}>
+                Group rounds
+              </div>
+              <div className="flex gap-2">
+                {[2, 3, 4].map((n) => {
+                  const ok = n <= maxRounds;
+                  const on = wantRounds === n && ok;
+                  return (
+                    <button key={n} onClick={() => ok && setWantRounds(n)} disabled={!ok}
+                      style={{
+                        background: on ? BRAND.green : "#fff",
+                        color: !ok ? "#c9cec6" : on ? "#fff" : BRAND.greenDark,
+                        border: `1.5px solid ${on ? BRAND.green : BRAND.mint}`,
+                      }}
+                      className="flex-1 rounded-lg py-2 text-[13px] font-bold">
+                      {n}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11.5px] text-[#8a9186] mt-2 mb-0">
+                {state.teams.length} teams ·{" "}
+                {Math.min(wantRounds, maxRounds) * Math.floor(state.teams.length / 2)} group matches ·
+                top {state.teams.length >= 8 ? 8 : state.teams.length >= 4 ? 4 : 2} go through
+                {maxRounds < 4 && ` · max ${maxRounds} rounds without repeats`}
+              </p>
+            </Card>
+
+            <button
+              onClick={() => dispatch({ type: "startTournament", groupRounds: wantRounds })}
+              style={{ background: BRAND.orange }}
+              className="w-full rounded-xl py-3 text-[14px] font-bold text-white flex items-center justify-center gap-2">
+              <Trophy size={17} /> Start Tournament
+            </button>
+          </>
+        )}
+
+        {state.teams.length > 0 && (
+          <button
+            onClick={() => {
+              if (window.confirm("Delete all teams and start over?")) {
+                dispatch({ type: "resetEverything" }, (prev) => ({
+                  ...prev, tournament: null, teams: [],
+                }));
+              }
+            }}
+            className="w-full text-[12px] font-bold py-2" style={{ color: "#c62828" }}>
+            Delete all teams &amp; start over
+          </button>
+        )}
+      </div>
+    );
+  }
 
   const qualified = new Set(koRounds[0]?.flatMap((m) => [m.teamAId, m.teamBId]) || []);
   const koCurrentIdx = koRounds.length - 1;
@@ -1197,15 +1355,108 @@ function BeerPong({ state, dispatch }) {
         </div>
       )}
 
-      <button
-        onClick={() => {
-          if (window.confirm("Reset the tournament? All results are cleared.")) {
-            dispatch({ type: "resetTournament" }, (prev) => ({ ...prev, tournament: null }));
-          }
-        }}
-        className="w-full text-[12px] font-semibold py-2" style={{ color: "#b7bdb4" }}>
-        Reset tournament
-      </button>
+      {/* Team management stays available once the tournament is running --
+          people drop out and swap around on the night. */}
+      <div>
+        <button
+          onClick={() => setShowTeams(!showTeams)}
+          className="w-full text-[12.5px] font-semibold py-2 rounded-lg"
+          style={{ color: BRAND.greenDark, background: "#f3f5f1" }}
+        >
+          {showTeams ? "Hide" : "Manage"} teams ({state.teams.length})
+        </button>
+
+        {showTeams && (
+          <div className="mt-3 space-y-3">
+            <Card>
+              <div className="text-[12.5px] font-semibold mb-2" style={{ color: BRAND.greenDark }}>
+                Add another team
+              </div>
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <select value={p1} onChange={(e) => setP1(e.target.value)}
+                    style={{ border: `1.5px solid ${BRAND.mint}` }}
+                    className="rounded-lg px-2 py-2 text-[13px] bg-white">
+                    <option value="">Player 1</option>
+                    {optionsFor(p1, p2, p3).map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+                  </select>
+                  <select value={p2} onChange={(e) => setP2(e.target.value)}
+                    style={{ border: `1.5px solid ${BRAND.mint}` }}
+                    className="rounded-lg px-2 py-2 text-[13px] bg-white">
+                    <option value="">Player 2</option>
+                    {optionsFor(p2, p1, p3).map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+                  </select>
+                </div>
+                <select value={p3} onChange={(e) => setP3(e.target.value)}
+                  style={{ border: `1.5px solid ${BRAND.mint}` }}
+                  className="w-full rounded-lg px-2 py-2 text-[13px] bg-white">
+                  <option value="">Player 3 — optional</option>
+                  {optionsFor(p3, p1, p2).map((p) => <option key={p.id} value={p.name}>{p.name}</option>)}
+                </select>
+                <button onClick={addTeam} disabled={!p1}
+                  style={{ background: p1 ? BRAND.orange : "#eee", color: p1 ? "#fff" : "#aaa" }}
+                  className="w-full rounded-lg py-2 text-[13px] font-bold">
+                  Add Team
+                </button>
+                <p className="text-[11.5px] text-[#8a9186] m-0">
+                  New teams join from the next round you draw.
+                </p>
+              </div>
+            </Card>
+
+            <Card>
+              <ul className="m-0 p-0 list-none divide-y" style={{ borderColor: BRAND.mint }}>
+                {state.teams.map((t) => (
+                  <li key={t.id} className="flex items-center justify-between py-2">
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-semibold truncate">{t.name}</div>
+                      <div className="text-[11.5px] text-[#8a9186] truncate">
+                        {t.playerNames.join(" & ")}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (window.confirm(
+                          `Remove ${t.name}? Any match they're in is removed too.`
+                        )) {
+                          dispatch({ type: "removeTeam", id: t.id });
+                        }
+                      }}
+                      className="flex-none ml-2 text-[11.5px] font-bold"
+                      style={{ color: "#c62828" }}
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </div>
+        )}
+      </div>
+
+      <div className="space-y-1 pt-1">
+        <button
+          onClick={() => {
+            if (window.confirm("Reset the tournament? Results are cleared but the teams stay.")) {
+              dispatch({ type: "resetTournament" }, (prev) => ({ ...prev, tournament: null }));
+            }
+          }}
+          className="w-full text-[12px] font-semibold py-2" style={{ color: "#b7bdb4" }}>
+          Reset tournament (keep teams)
+        </button>
+        <button
+          onClick={() => {
+            if (window.confirm("Start completely over? This deletes every team AND all results.")) {
+              dispatch({ type: "resetEverything" }, (prev) => ({
+                ...prev, tournament: null, teams: [],
+              }));
+            }
+          }}
+          className="w-full text-[12px] font-bold py-2" style={{ color: "#c62828" }}>
+          Delete everything & start over
+        </button>
+      </div>
     </div>
   );
 }

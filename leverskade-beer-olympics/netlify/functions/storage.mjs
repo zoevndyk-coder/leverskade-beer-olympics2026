@@ -312,6 +312,26 @@ function applyAction(state, action) {
     }
     case "removeTeam": {
       s.teams = s.teams.filter((t) => t.id !== action.id);
+      // A running tournament would still be pointing at this team, so strip
+      // out any match it was part of rather than leaving a broken fixture.
+      if (s.tournament) {
+        const alive = (m) =>
+          m.teamAId !== action.id && m.teamBId !== action.id;
+        const rounds = (s.tournament.rounds || [])
+          .map((r) => r.filter(alive))
+          .filter((r) => r.length > 0);
+        let ko = s.tournament.knockout;
+        if (ko) {
+          const koRounds = (ko.rounds || [])
+            .map((r) => r.filter(alive))
+            .filter((r) => r.length > 0);
+          ko = koRounds.length ? { ...ko, rounds: koRounds } : null;
+        }
+        s.tournament =
+          rounds.length || ko
+            ? { ...s.tournament, rounds, knockout: ko }
+            : null;
+      }
       break;
     }
     case "startTournament": {
@@ -395,6 +415,12 @@ function applyAction(state, action) {
     }
     case "resetTournament": {
       s.tournament = null;
+      break;
+    }
+    // Wipes the tournament and every team — a clean slate.
+    case "resetEverything": {
+      s.tournament = null;
+      s.teams = [];
       break;
     }
     default:
